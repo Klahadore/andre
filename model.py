@@ -6,7 +6,7 @@ layers = 30
 class Andre(nn.Module):
     def __init__(self):
         super().__init__()
-        
+
         self.transformer_blocks = nn.ModuleList(    )
         for _ in range(layers):
             self.transformer_blocks.append(nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim*4, batch_first=True))
@@ -18,7 +18,7 @@ class Andre(nn.Module):
 
     def forward(self, gene_ids, counts, attention_mask):
         x = self.embedding(gene_ids)
-        counts_embeddings 
+        counts_embeddings =
 
 if __name__ == "__main__":
     model = Andre()
