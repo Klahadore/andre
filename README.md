@@ -171,3 +171,65 @@ uv run scripts/verify_dataset.py /opt/dlami/nvme/andre/lmdb \
   --data-root /opt/dlami/nvme/andre/data \
   --expected-cells 153486103 --expected-nnz 347909504795
 ```
+
+## Detailed H100-host loader benchmark (2026-09-22 UTC)
+
+Reproduce the storage latency and worker-count comparison on the H100 host:
+
+```sh
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 uv run scripts/benchmark_loader_detail.py \
+  /opt/dlami/nvme/andre/lmdb --output /tmp/andre-loader-benchmark.json
+```
+
+A **storage record** holds up to 32 cells from one accession and split. It
+preserves every expressed gene/count pair; each cell is independently compressed
+and can be decoded without decompressing its neighbors. The final record in a
+shard/split may contain fewer cells. A **shuffle block** is a logical group of
+4,096 cells, shuffled internally before moving to another group; it is not one
+LMDB value or an atomic read. A **training batch** here contains 256 cells, each
+sampled/padded to 512 gene positions, with one masked gene identity per cell.
+
+On the 16-vCPU H100 host, 1,024 full storage records sampled from cell-weighted
+shards had a median packed size of **88.5 KiB** (mean 104.6 KiB; p95 208.7 KiB).
+They averaged 71,741 expressed gene/count pairs per record, or 2,242 per cell.
+Decoded int64 gene IDs and float32 counts averaged **841 KiB per record**,
+excluding tensor/Python overhead. The collated 256-by-512 batch occupies 1.63 MiB
+including masks and targets.
+
+| Operation | Median | p95 |
+| --- | ---: | ---: |
+| Current-cache LMDB read + full value copy | 37.0 us | 5.03 ms |
+| Immediately repeated hot read + full value copy | 5.91 us | 16.9 us |
+| Decode one cell from an already fetched record | 85.9 us | 210 us |
+| Decode all 32 cells from an already fetched record | 1.99 ms | 4.08 ms |
+| Hot `Dataset.__getitems__` for 32 contiguous cells | 2.03 ms | 4.25 ms |
+
+Record reads include transaction creation but exclude shard-handle acquisition
+(median 181 us for handle lookup/open in this sample). First reads used the
+existing OS cache and generated 44.8 MiB of physical reads during the record
+test; they are **mixed-cache measurements, not a controlled cold-SSD test**.
+Every sampled record was compared against the batched reader, covering 32,768
+cells; mixed-shard request order and duplicate indices also passed. All eight
+repository tests passed separately before timing.
+
+Pipeline trials prewarm the same 139,520 cells, then measure 512 batches
+(131,072 cells) after the first batch and 32 warmup batches. Each worker count
+runs twice in randomized order. Measurements include decompression, random
+gene selection, masking, collation and worker IPC. Index sequences are generated
+before timing. They exclude GPU transfer and model compute; pinned memory is
+disabled. Prefetching means individual `next()` wait times can be near zero even
+when the average time per batch is appreciably larger.
+
+| Loader workers | Cells/second (both runs combined) | Average time per 256-cell batch |
+| ---: | ---: | ---: |
+| 0 | 7,073 | 36.19 ms |
+| 2 | 12,778 | 20.03 ms |
+| 4 | 22,810 | 11.22 ms |
+| 8 | 36,927 | 6.93 ms |
+
+Eight workers were fastest among the configurations tested (individual runs:
+35,660 and 38,287 cells/s). The first batch including eight-worker startup took
+8.65–8.66 seconds; use `persistent_workers=True` to amortize startup across
+epochs. These are loader-only warm-cache rates, not full-corpus epoch or GPU
+training estimates. Raw timing distributions and run metadata are saved in
+[`benchmarks/h100-loader-20260922.json`](benchmarks/h100-loader-20260922.json).

@@ -1,0 +1,229 @@
+{
+  "timestamp_utc": "2026-09-22T05:31:26.397202+00:00",
+  "platform": "Linux-7.0.0-1012-aws-x86_64-with-glibc2.39",
+  "logical_cpus": 16,
+  "torch_version": "2.14.0+cu130",
+  "split": "train",
+  "split_cells": 122793289,
+  "seed": 20260922,
+  "shuffle_block_cells": 4096,
+  "cache_policy": "no cache eviction; record first-touch uses current OS cache; pipeline input explicitly prewarmed",
+  "scope": "CPU only; no GPU transfer/model; pipeline includes decompression, random gene selection, masking and worker IPC",
+  "records": {
+    "sampling": "cell-weighted shard sampling with replacement; uniform full records within shard",
+    "cells_per_record": 32,
+    "packed_bytes": {
+      "n": 1024,
+      "mean": 107117.3271484375,
+      "p50": 90642.0,
+      "p95": 213723.09999999998,
+      "p99": 271601.31
+    },
+    "expressed_gene_pairs_per_record": {
+      "n": 1024,
+      "mean": 71741.2900390625,
+      "p50": 59104.0,
+      "p95": 148181.9,
+      "p99": 189166.06999999998
+    },
+    "decoded_tensor_bytes": {
+      "n": 1024,
+      "mean": 860895.48046875,
+      "p50": 709248.0,
+      "p95": 1778182.8,
+      "p99": 2269992.84
+    },
+    "latency_us": {
+      "shard_handle_lookup_or_open": {
+        "n": 128,
+        "mean": 175.49690625,
+        "p50": 180.5835,
+        "p95": 227.809,
+        "p99": 290.3466600000002
+      },
+      "current_cache_get_and_copy": {
+        "n": 1024,
+        "mean": 1633.9603798828125,
+        "p50": 37.031000000000006,
+        "p95": 5028.12535,
+        "p99": 5563.7641300000005
+      },
+      "hot_get_and_copy": {
+        "n": 1024,
+        "mean": 8.644020507812499,
+        "p50": 5.910500000000001,
+        "p95": 16.8785,
+        "p99": 75.82156999999987
+      },
+      "decode_one_cell": {
+        "n": 1024,
+        "mean": 103.4347490234375,
+        "p50": 85.87700000000001,
+        "p95": 209.74284999999998,
+        "p99": 280.96149999999994
+      },
+      "decode_all_32_cells": {
+        "n": 1024,
+        "mean": 2249.3937646484374,
+        "p50": 1990.3029999999999,
+        "p95": 4076.9539999999993,
+        "p99": 5215.865269999998
+      },
+      "hot_dataset_getitems_32_cells": {
+        "n": 1024,
+        "mean": 2337.6649501953125,
+        "p50": 2031.909,
+        "p95": 4251.438849999998,
+        "p99": 5367.44917
+      }
+    },
+    "process_storage_read_bytes_during_record_test": 47026176,
+    "correctness": "every sampled full record equals batched loader output; mixed-shard ordering and duplicates pass"
+  },
+  "pipeline": [
+    {
+      "repeat": 0,
+      "workers": 0,
+      "batch_size": 256,
+      "sequence_length": 512,
+      "measured_batches": 512,
+      "startup_seconds": 0.030700606001119013,
+      "elapsed_seconds": 18.51040734700109,
+      "cells_per_second": 7080.989496497236,
+      "batch_wait_ms": {
+        "n": 512,
+        "mean": 36.15173845898437,
+        "p50": 33.650647,
+        "p95": 57.16229285,
+        "p99": 67.08251587000001
+      },
+      "batch_tensor_bytes": 1708032
+    },
+    {
+      "repeat": 0,
+      "workers": 8,
+      "batch_size": 256,
+      "sequence_length": 512,
+      "measured_batches": 512,
+      "startup_seconds": 8.651221504000205,
+      "elapsed_seconds": 3.675600549000592,
+      "cells_per_second": 35660.02296839326,
+      "batch_wait_ms": {
+        "n": 512,
+        "mean": 7.17743298046875,
+        "p50": 0.5432505,
+        "p95": 47.48971225,
+        "p99": 72.39984091999997
+      },
+      "batch_tensor_bytes": 1708032
+    },
+    {
+      "repeat": 0,
+      "workers": 2,
+      "batch_size": 256,
+      "sequence_length": 512,
+      "measured_batches": 512,
+      "startup_seconds": 2.2038542369991774,
+      "elapsed_seconds": 10.26614435600095,
+      "cells_per_second": 12767.402780907074,
+      "batch_wait_ms": {
+        "n": 512,
+        "mean": 20.049492630859376,
+        "p50": 23.2758515,
+        "p95": 47.38998269999999,
+        "p99": 63.54167399
+      },
+      "batch_tensor_bytes": 1708032
+    },
+    {
+      "repeat": 0,
+      "workers": 4,
+      "batch_size": 256,
+      "sequence_length": 512,
+      "measured_batches": 512,
+      "startup_seconds": 4.338670318000368,
+      "elapsed_seconds": 5.819570788000419,
+      "cells_per_second": 22522.62319246327,
+      "batch_wait_ms": {
+        "n": 512,
+        "mean": 11.3646268046875,
+        "p50": 0.6338025,
+        "p95": 51.098034299999995,
+        "p99": 70.53141928000001
+      },
+      "batch_tensor_bytes": 1708032
+    },
+    {
+      "repeat": 1,
+      "workers": 2,
+      "batch_size": 256,
+      "sequence_length": 512,
+      "measured_batches": 512,
+      "startup_seconds": 2.199637083000198,
+      "elapsed_seconds": 10.24845872699916,
+      "cells_per_second": 12789.435318180673,
+      "batch_wait_ms": {
+        "n": 512,
+        "mean": 20.01492761328125,
+        "p50": 18.8207565,
+        "p95": 49.487900849999996,
+        "p99": 71.34719047999998
+      },
+      "batch_tensor_bytes": 1708032
+    },
+    {
+      "repeat": 1,
+      "workers": 0,
+      "batch_size": 256,
+      "sequence_length": 512,
+      "measured_batches": 512,
+      "startup_seconds": 0.029734591000305954,
+      "elapsed_seconds": 18.55153213400081,
+      "cells_per_second": 7065.292454188964,
+      "batch_wait_ms": {
+        "n": 512,
+        "mean": 36.231950832031245,
+        "p50": 33.8648015,
+        "p95": 57.22512445,
+        "p99": 67.45269329
+      },
+      "batch_tensor_bytes": 1708032
+    },
+    {
+      "repeat": 1,
+      "workers": 4,
+      "batch_size": 256,
+      "sequence_length": 512,
+      "measured_batches": 512,
+      "startup_seconds": 4.350374735999139,
+      "elapsed_seconds": 5.673083800000313,
+      "cells_per_second": 23104.18894217511,
+      "batch_wait_ms": {
+        "n": 512,
+        "mean": 11.0787478359375,
+        "p50": 0.5420405,
+        "p95": 47.30294845,
+        "p99": 61.53742002999997
+      },
+      "batch_tensor_bytes": 1708032
+    },
+    {
+      "repeat": 1,
+      "workers": 8,
+      "batch_size": 256,
+      "sequence_length": 512,
+      "measured_batches": 512,
+      "startup_seconds": 8.65965148700161,
+      "elapsed_seconds": 3.423451552000188,
+      "cells_per_second": 38286.50647134755,
+      "batch_wait_ms": {
+        "n": 512,
+        "mean": 6.684813093750001,
+        "p50": 0.6497625,
+        "p95": 39.978485,
+        "p99": 58.65074566
+      },
+      "batch_tensor_bytes": 1708032
+    }
+  ]
+}
