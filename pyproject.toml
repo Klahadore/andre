@@ -12,4 +12,6 @@ dependencies = [
     "scanpy>=1.12.4",
     "torch>=2.14.0",
     "tqdm>=4.70.1",
+    "wandb>=0.30.0",
+    "weave>=0.53.9",
 ]

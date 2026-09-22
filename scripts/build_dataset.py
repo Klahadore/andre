@@ -9,6 +9,10 @@ from collections import Counter
 import hashlib
 import json
 import os
+# Each worker uses one CPU; avoid multiplying BLAS/DuckDB thread pools.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMBA_NUM_THREADS", "1")
 from pathlib import Path
 import re
 import shutil
@@ -16,16 +20,26 @@ import sys
 import tempfile
 import time
 import fcntl
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+from contextlib import ExitStack
+import zlib
 
 import anndata as ad
 import duckdb
+# DuckDB's module-level default connection otherwise starts a thread pool sized
+# to the whole host in every process, even when explicit connections use one.
+duckdb.execute("SET threads=1")
 import h5py
 import lmdb
 import numpy as np
 import pandas as pd
+from scipy.sparse import csc_matrix, csr_matrix
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dataset import CELLS_PER_RECORD, FORMAT_VERSION, SPLITS, cell_key, encode_cell, pack_cells
+from dataset_codec import CELLS_PER_RECORD, FORMAT_VERSION, SPLITS, cell_key, encode_cell, pack_cells
+from scripts.fast_h5 import read_vector
+from scripts.fast_encode import prepare_cells
 
 
 MIN_GENES, MIN_UMIS = 300, 500
@@ -41,6 +55,13 @@ def atomic_json(path, content):
 
 
 def load_vocab(path):
+    if not Path(path).is_file():
+        raise FileNotFoundError(
+            f"Vocabulary not found: {Path(path).resolve()}. Copy the notebook's "
+            "data/gene_to_id.csv from your local checkout to this path, or pass "
+            "--vocab /absolute/path/gene_to_id.csv. Do not regenerate IDs from "
+            "an arbitrary sample: existing model token IDs must remain stable."
+        )
     frame = pd.read_csv(path)
     if (frame["gene"].duplicated().any() or frame["token_id"].duplicated().any()
             or frame["gene"].isna().any()):
@@ -58,7 +79,7 @@ def load_vocab(path):
 def notebook_splits(accession, barcodes):
     """Same DuckDB hash and 80/10/10 cell-level assignment as the notebook."""
     frame = pd.DataFrame({"cell_barcode": barcodes})
-    with duckdb.connect() as db:
+    with duckdb.connect(config={"threads": 1}) as db:
         db.register("cells", frame)
         buckets = db.execute(
             "SELECT hash(? || cell_barcode) % 10 FROM cells", [accession]
@@ -127,9 +148,17 @@ def build_shard(source, destination, accession, vocab, vocab_hash, *,
         keep = np.flatnonzero((obs["gene_count_Unique"][:] >= MIN_GENES)
                               & (obs["umi_count_Unique"][:] >= MIN_UMIS))
         split_ids = notebook_splits(accession, barcodes[keep])
-        matrix = ad.io.read_elem(x).tocsr()
+        constructor = csc_matrix if encoding == "csc_matrix" else csr_matrix
+        matrix = constructor((read_vector(x["data"]), read_vector(x["indices"]),
+                              read_vector(x["indptr"])), shape=(n_cells, n_genes)).tocsr()
     matrix.sum_duplicates()
     matrix.eliminate_zeros()
+    if np.any(column_tokens[1:] <= column_tokens[:-1]):
+        order = np.argsort(column_tokens)
+        matrix = matrix[:, order].tocsr()
+        column_tokens = column_tokens[order]
+    matrix.sort_indices()
+    prepared = prepare_cells(matrix, column_tokens, keep)
     if source.stat().st_mtime_ns != stat.st_mtime_ns or source.stat().st_size != stat.st_size:
         raise RuntimeError(f"Source changed while reading: {source}")
 
@@ -139,19 +168,24 @@ def build_shard(source, destination, accession, vocab, vocab_hash, *,
     counts = {split: 0 for split in SPLITS}
     payload_bytes = nnz = 0
     try:
-        env = lmdb.open(str(temporary), map_size=64 * 2**20, max_spare_txns=0)
+        # Temporary shards can be rebuilt. Flush once before publication instead
+        # of fsync on every small transaction; final published shards are durable.
+        env = lmdb.open(str(temporary), map_size=64 * 2**20, max_spare_txns=0,
+                        sync=False, metasync=False)
         records = []
         pending = {split: [] for split in SPLITS}
-        for row, split_id in zip(keep, split_ids):
+        for cell_index, (row, split_id) in enumerate(zip(keep, split_ids)):
             start, end = matrix.indptr[row:row+2]
-            gene_ids = column_tokens[matrix.indices[start:end]]
-            values = matrix.data[start:end]
             # Fail on invalid data rather than silently changing cohort membership.
-            value = encode_cell(gene_ids, values)
+            if prepared is None:
+                value = encode_cell(column_tokens[matrix.indices[start:end]], matrix.data[start:end])
+            else:
+                raw, offsets = prepared
+                value = zlib.compress(memoryview(raw)[offsets[cell_index]:offsets[cell_index+1]], level=1)
             split = SPLITS[int(split_id)]
             pending[split].append(value)
             counts[split] += 1
-            nnz += len(values)
+            nnz += int(end - start)
             payload_bytes += len(value)
             if len(pending[split]) == CELLS_PER_RECORD:
                 block_index = (counts[split] - 1) // CELLS_PER_RECORD
@@ -167,7 +201,7 @@ def build_shard(source, destination, accession, vocab, vocab_hash, *,
         if records:
             _check_space(temporary, records, reserve_gib)
             _write_batch(env, records)
-        env.sync()
+        env.sync(True)
         env.close()
         env = None
         meta = {"signature": signature, "counts": counts, "source_cells": n_cells,
@@ -192,7 +226,7 @@ def _check_space(path, records, reserve_gib):
 
 def selected_accessions(data_root):
     """Use the local sample metadata for the notebook's sample-level filter."""
-    with duckdb.connect() as db:
+    with duckdb.connect(config={"threads": 1}) as db:
         rows = db.execute("""
             SELECT DISTINCT srx_accession FROM read_parquet(?)
             WHERE organism = 'Homo sapiens' AND tech_10x = '3_prime_gex'
@@ -207,17 +241,95 @@ def selected_accessions(data_root):
     return sorted(set(requested))
 
 
+_WORKER = None
+
+
+def _init_worker(config):
+    global _WORKER
+    _WORKER = config
+
+
+def _convert_accession(accession):
+    config = _WORKER
+    source = config["data_root"] / "h5ad" / f"{accession}.h5ad"
+    destination = config["out"] / "shards" / accession
+    published = config["publish_to"] / "shards" / accession if config["publish_to"] else destination
+    # A published shard is immutable; validate it rather than copying/rebuilding.
+    target = published if published.exists() else destination
+    meta = build_shard(source, target, accession, config["vocab"], config["vocab_hash"],
+                       matrix_memory_gib=config["matrix_memory_gib"],
+                       reserve_gib=config["reserve_gib"])
+    if published != destination and not published.exists():
+        published.parent.mkdir(parents=True, exist_ok=True)
+        if shutil.disk_usage(published.parent).free < (config["reserve_gib"] * 2**30
+                                                        + meta["database_bytes"]):
+            raise OSError("Insufficient free space at publication destination")
+        temporary = Path(tempfile.mkdtemp(prefix=f".{accession}-copy-", dir=published.parent))
+        try:
+            for name in ("data.mdb", "metadata.json"):
+                shutil.copy2(destination / name, temporary / name)
+                with (temporary / name).open("rb") as f:
+                    os.fsync(f.fileno())
+            temporary.rename(published)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+        shutil.rmtree(destination)
+    return accession, meta
+
+
+def convert_all(accessions, config, workers, memory_budget_gib):
+    """Bound concurrency and estimated total memory; schedule large files first."""
+    sizes = {acc: (config["data_root"] / "h5ad" / f"{acc}.h5ad").stat().st_size
+             for acc in accessions}
+    ordered = sorted(accessions, key=lambda a: sizes[a], reverse=True)
+    budget = memory_budget_gib * 2**30
+    def weight(acc):
+        return min(config["matrix_memory_gib"] * 2**30 * 1.25,
+                   sizes[acc] * 6 + 512 * 2**20)
+    running = {}
+    allocated = 0
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("spawn"),
+                             initializer=_init_worker, initargs=(config,)) as pool:
+        while ordered or running:
+            while ordered and len(running) < workers:
+                # Backfill with smaller files when a large file cannot fit in
+                # remaining RAM, rather than leaving otherwise idle CPUs.
+                choice = next((i for i, acc in enumerate(ordered)
+                               if allocated + weight(acc) <= budget), None)
+                if choice is None:
+                    if not running:
+                        raise MemoryError("A source exceeds --memory-budget-gib")
+                    break
+                acc = ordered.pop(choice)
+                amount = weight(acc)
+                running[pool.submit(_convert_accession, acc)] = amount
+                allocated += amount
+            done, _ = wait(running, return_when=FIRST_COMPLETED)
+            for future in done:
+                allocated -= running.pop(future)
+                yield future.result()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--vocab", type=Path, default=Path("data/gene_to_id.csv"))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--limit", type=int, help="build an explicit pilot subset")
+    parser.add_argument("--workers", type=int, default=min(os.cpu_count() or 1, 16))
+    parser.add_argument("--memory-budget-gib", type=float, default=128,
+                        help="total estimated workspace budget across workers")
+    parser.add_argument("--publish-to", type=Path,
+                        help="copy completed local shards here, then remove local staging shards")
     parser.add_argument("--matrix-memory-gib", type=float, default=8)
     parser.add_argument("--reserve-gib", type=float, default=10)
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be positive")
+    if args.workers < 1 or args.memory_budget_gib <= 0:
+        parser.error("workers and total memory budget must be positive")
     if args.matrix_memory_gib <= 0 or args.reserve_gib < 0:
         parser.error("memory budget must be positive; reserve must be nonnegative")
     vocab, vocab_hash = load_vocab(args.vocab)
@@ -233,30 +345,40 @@ def main():
         if not path.is_file():
             raise FileNotFoundError(f"Missing source {path}; finish downloading first")
     args.out.mkdir(parents=True, exist_ok=True)
-    # Prevent competing builders from publishing the same output root.
-    with (args.out / ".build.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        shards = []
+    output_root = args.publish_to or args.out
+    output_root.mkdir(parents=True, exist_ok=True)
+    if args.publish_to and args.out.resolve() == args.publish_to.resolve():
+        parser.error("--publish-to must differ from the local --out staging directory")
+    config = dict(data_root=args.data_root, out=args.out, publish_to=args.publish_to,
+                  vocab=vocab, vocab_hash=vocab_hash, matrix_memory_gib=args.matrix_memory_gib,
+                  reserve_gib=args.reserve_gib)
+    # Hold both locks when staging locally and publishing to another filesystem.
+    with ExitStack() as stack:
+        for root in sorted({args.out.resolve(), output_root.resolve()}):
+            lock = stack.enter_context((root / ".build.lock").open("w"))
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        shards = {}
         totals = Counter()
         started = time.monotonic()
-        for i, accession in enumerate(accessions):
-            relative = f"shards/{accession}"
-            meta = build_shard(
-                args.data_root / "h5ad" / f"{accession}.h5ad", args.out / relative,
-                accession, vocab, vocab_hash, matrix_memory_gib=args.matrix_memory_gib,
-                reserve_gib=args.reserve_gib,
-            )
+        for i, (accession, meta) in enumerate(convert_all(
+                accessions, config, args.workers, args.memory_budget_gib)):
             totals.update(meta["counts"])
-            shards.append({"path": relative, "counts": meta["counts"],
-                           "database_bytes": meta["database_bytes"]})
-            print(f"{i+1}/{len(accessions)} {accession}: {meta['counts']}, "
-                  f"{meta['database_bytes']/2**20:.1f} MiB", flush=True)
+            shards[accession] = {"path": f"shards/{accession}", "counts": meta["counts"],
+                                "database_bytes": meta["database_bytes"]}
+            elapsed = time.monotonic() - started
+            progress = {"files_done": i+1, "files_total": len(accessions),
+                        "cells_done": sum(totals.values()), "elapsed_seconds": round(elapsed, 1),
+                        "output_bytes": sum(s["database_bytes"] for s in shards.values())}
+            if (i+1) % 10 == 0 or i == 0 or i+1 == len(accessions):
+                atomic_json(output_root / "progress.json", progress)
+                print(json.dumps(progress), flush=True)
         catalog = {"format_version": FORMAT_VERSION, "vocab_size": len(vocab),
                    "vocab_sha256": vocab_hash, "duckdb_version": duckdb.__version__,
-                   "pilot": args.limit is not None, "counts": dict(totals), "shards": shards}
-        atomic_json(args.out / "vocabulary.json", vocab)
-        atomic_json(args.out / "catalog.json", catalog)
-        size = sum(s["database_bytes"] for s in shards)
+                   "pilot": args.limit is not None, "counts": dict(totals),
+                   "shards": [shards[acc] for acc in accessions]}
+        atomic_json(output_root / "vocabulary.json", vocab)
+        atomic_json(output_root / "catalog.json", catalog)
+        size = sum(s["database_bytes"] for s in shards.values())
         cells = sum(totals.values())
         print(f"Ready: {cells:,} cells, {size/2**30:.2f} GiB, "
               f"{size/max(cells, 1):.0f} bytes/cell, {time.monotonic()-started:.1f}s")

@@ -1,16 +1,12 @@
 import torch
 from torch import nn
 from einops import einsum
-import dataset
 
 context_length = 512
 hidden_dim = 512
 num_transformer_layers = 30
 output_dim = 36601
 
-dataset_path = ""
-
-layers = 30
 class Andre(nn.Module):
     def __init__(self):
         super().__init__()
@@ -32,11 +28,11 @@ class Andre(nn.Module):
             x = layer(x, src_key_padding_mask=~attention_mask)
 
         is_mask = torch.nn.functional.one_hot(
-              mask_position,
-              num_classes=x.shape[1],
-          ).to(device=x.device, dtype=x.dtype)
+            mask_position,
+            num_classes=x.shape[1],
+        ).to(device=x.device, dtype=x.dtype)
 
-        # Get only the embedding for the embedding at the hidden_dim
+        # Select the MASK position's hidden vector for each cell.
         masked_hidden = einsum(x, is_mask, "b p h, b p -> b h")
         out = self.out_layer(masked_hidden)
 
@@ -45,12 +41,5 @@ class Andre(nn.Module):
 
 if __name__ == "__main__":
     model = Andre()
-
-    train_dataset = dataset.ScBaseCountDataset()
-    test_dataset = dataset.ScBaseCountDataset(split="test")
-
-    sc_dataset_shuffler = dataset.BlockShuffleSampler(train_dataset, )
-
-    loss = nn.functional.cross_entropy(
-
-    )
+    print(model)
+    print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")

@@ -40,8 +40,14 @@ published. The catalog is published after all requested sources succeed.
 Source files are never deleted. A hard kill can leave a hidden temporary shard
 directory; it is not used on restart and can be removed while no builder runs.
 
-Conversion is sequential, loading one sparse X matrix at a time and converting
-CSC to CSR once. The default estimated per-matrix workspace budget is 8 GiB;
+Conversion runs in separate processes (`--workers`, default up to 16), loading
+one sparse X matrix per worker and converting CSC to CSR once. A memory-aware
+scheduler starts large samples early and fills unused capacity with smaller
+ones. `--memory-budget-gib` bounds estimated combined conversion workspace.
+Gzip-only HDF5 arrays use system libdeflate when available; Numba prepares the
+record bytes in compiled loops. Other layouts and installations fall back to
+the original decoders. Both paths produce the same lossless record format.
+Temporary shards flush once before publication rather than on each transaction. The default estimated per-matrix workspace budget is 8 GiB;
 `--matrix-memory-gib` increases it for larger samples on a host with room.
 `--reserve-gib` defaults to 10 and stops conversion before consuming the disk
 reserve. DuckDB's hash version is recorded because the notebook's cell-level
@@ -95,7 +101,7 @@ without replacement and masks one identity; the corresponding count remains.
 `attention_mask=True` means a real entry, including MASK. Pass
 `~batch["attention_mask"]` as PyTorch Transformer's `src_key_padding_mask`.
 Use `dataset.vocab_size` for the model's embedding and prediction-head sizes
-(36,603 for this vocabulary). The existing unfinished `model.py` is separate.
+(36,603 for this vocabulary). The model consumes the same batch interface.
 
 Reader handles open lazily in each worker, with at most 32 open shards per
 process. Batch reads group requests by shard and packed record. Multiple
@@ -117,5 +123,22 @@ not a cold-NVMe or H100 training benchmark.
 
 The remote snapshot had about 1,022 GiB free. Extrapolating this single sample
 to the notebook total gives roughly 648 GiB, but sizes vary by sample. Measure a
-broader pilot and retain headroom before the full conversion. No conversion or
-benchmark was run on the remote host; inspection there was read-only.
+broader pilot and retain headroom before the full conversion.
+
+The optimized converter processed a 64-file, 524,767-cell pilot in 15.7 seconds
+on a temporary c7i.48xlarge using 32 workers, including worker startup. The
+source was read over private NFS from the H100 host. A 30,885-cell comparison
+against the original converter matched every gene ID and count. This pilot
+timing is not a full-corpus runtime guarantee.
+
+For conversion on another machine, use `--out /local/staging` and
+`--publish-to /mounted/destination`. LMDB writes happen on the local filesystem;
+closed, flushed shards are copied and atomically published at the destination.
+Local copies are removed after publication, and the final catalog appears only
+after all requested shards finish. Do not write active LMDB environments over
+NFS. Run only one builder for a destination; file locks enforce this.
+
+The exact notebook vocabulary is required. If it is missing remotely, copy
+`data/gene_to_id.csv` from the local checkout; do not regenerate a differently
+ordered vocabulary. The converter now reports the absolute missing path and
+this recovery step.
