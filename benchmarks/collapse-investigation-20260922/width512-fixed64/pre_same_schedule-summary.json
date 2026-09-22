@@ -1,0 +1,22 @@
+{
+  "variant": "pre_same_schedule",
+  "width": 512,
+  "norm_first": true,
+  "lr": 0.0003,
+  "warmup": 100,
+  "steps": 300,
+  "cells": 64,
+  "step": 300,
+  "first_attention_grad_rms": 2.781225703074597e-07,
+  "last_attention_grad_rms": 5.885693710183659e-08,
+  "grad_norm": 0.0036633778363466263,
+  "seconds": 70.46425736200035,
+  "loss": 0.0008312602294608951,
+  "accuracy": 1.0,
+  "top1_unique": 64,
+  "prediction_kl_to_mean": 4.155198097229004,
+  "constant_mean_loss": 4.1596832275390625,
+  "no_context_loss": 8.202939987182617,
+  "no_context_probability_l1": 1.925933599472046,
+  "shuffled_target_loss": 15.411270141601562
+}

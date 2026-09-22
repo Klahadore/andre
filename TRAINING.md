@@ -54,6 +54,7 @@ uv run train.py \
   --grad-accum-steps 2 \
   --context-length 512 \
   --steps 152588 \
+  --warmup-steps 1000 \
   --eval-every 1000 \
   --val-batches 100 \
   --device cuda \
@@ -174,3 +175,44 @@ batch even when the microbatches have unequal sizes. They do not benchmark H100 
 
 API references: [W&B run modes](https://docs.wandb.ai/models/ref/python/functions/init)
 and [PyTorch automatic mixed precision](https://docs.pytorch.org/docs/2.14/amp.html).
+
+## Normalization and collapse diagnostics
+
+The 30-layer model now normalizes **before** attention and the feed-forward
+network (`norm_first=True`), then applies one final LayerNorm to the selected
+MASK vector. This preserves an unnormalized residual path through the stack.
+The older post-LN checkpoint produced essentially identical outputs for
+unrelated cells and had vanishing gradients in early attention layers.
+
+Start fresh when changing normalization. Checkpoints record
+`model_architecture=pre_ln_v1`; the trainer rejects older post-LN checkpoints
+rather than silently treating them as the new model.
+
+In addition to loss and accuracy, W&B now shows:
+
+- `train/first_attention_grad_rms` and `train/last_attention_grad_rms`: gradient
+  magnitudes before clipping, so a healthy output head cannot hide a frozen
+  early stack.
+- `val/prediction_kl_to_mean`: variation in the predicted distributions across
+  validation cells. Zero means the distributions are identical; a positive
+  value alone does not establish that predictions are useful.
+- `val/unique_top1_predictions`: how many different genes were predicted.
+- `val/context_gain`: on the same first 128 validation cells, loss with gene
+  context hidden minus normal loss. A positive value means context helps on
+  this probe. It keeps the MASK count available in both conditions.
+
+These diagnostics complement held-out loss. A tiny fixed-data learning test
+can expose a broken learning path, but passing it does not establish stability
+or generalization during a long run.
+
+To reproduce controlled learning probes on real cells:
+
+```bash
+uv run scripts/investigate_collapse.py \
+  --data-root /opt/dlami/nvme/andre/lmdb \
+  --out runs/collapse-probes --width 512 --steps 300
+```
+
+The probes use identical cells, gene samples and masks across configurations,
+keep all 30 layers and all 36,601 output classes, and compare normal predictions
+with context hidden and targets shuffled. They do not resume a production run.

@@ -73,6 +73,10 @@ def evaluate(model, loader, device, use_bf16, seed):
     """Same validation cells, sampled genes, and MASK positions at each check."""
     model.eval()  # Disable dropout. no_grad() also avoids storing gradients.
     loss_sum = correct = cells = 0
+    probability_sum = None
+    entropy_sum = 0.0
+    predicted_genes = set()
+    context_loss_sum = context_full_loss_sum = context_cells = 0
     # Validation collation runs on the main CPU. Restore its RNG afterward so
     # evaluation does not change subsequent training samples/dropout on CPU.
     with torch.random.fork_rng(devices=[]):
@@ -89,14 +93,44 @@ def evaluate(model, loader, device, use_bf16, seed):
             loss_sum += loss.item() * n
             correct += (logits.argmax(dim=-1) == targets).sum().item()
             cells += n
+            # Diversity of predictions exposes a constant-output collapse even
+            # when cross-entropy is still improving through gene frequencies.
+            probabilities = logits.float().softmax(-1)
+            if probability_sum is None:
+                probability_sum = probabilities.sum(0)
+            else:
+                probability_sum += probabilities.sum(0)
+            entropy_sum += (-(probabilities * probabilities.clamp_min(1e-30).log()).sum()).item()
+            predicted_genes.update(logits.argmax(-1).unique().tolist())
+            # Compare the same first 128 validation cells with their gene context
+            # hidden. Counts at MASK remain available in both conditions.
+            take = min(n, 128 - context_cells)
+            if take > 0:
+                contextless = {name: tensor[:take] for name, tensor in batch.items()}
+                contextless["attention_mask"] = torch.zeros_like(contextless["attention_mask"])
+                rows = torch.arange(take, device=device)
+                contextless["attention_mask"][rows, contextless["mask_positions"]] = True
+                with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
+                    context_logits = predict(model, contextless)
+                    context_loss = nn.functional.cross_entropy(context_logits, targets[:take])
+                context_loss_sum += context_loss.item() * take
+                context_full_loss_sum += nn.functional.cross_entropy(logits[:take].float(), targets[:take]).item() * take
+                context_cells += take
     model.train()  # Re-enable dropout before returning to training.
-    return {"val/loss": loss_sum / cells, "val/accuracy": correct / cells, "val/cells": cells}
+    mean_probability = probability_sum / cells
+    mean_entropy = (-(mean_probability * mean_probability.clamp_min(1e-30).log()).sum()).item()
+    return {"val/loss": loss_sum / cells, "val/accuracy": correct / cells, "val/cells": cells,
+            "val/prediction_kl_to_mean": max(0.0, mean_entropy - entropy_sum / cells),
+            "val/unique_top1_predictions": len(predicted_genes),
+            "val/context_gain": (context_loss_sum - context_full_loss_sum) / context_cells,
+            "val/context_probe_cells": context_cells}
 
 
 def save_checkpoint(path, model, optimizer, step, epoch, best_loss, args):
     # Write a temporary file first so interruption does not destroy last.pt.
     temporary = path.with_suffix(".tmp")
     torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(),
+                "model_architecture": model.architecture,
                 "step": step, "epoch": epoch, "best_val_loss": best_loss,
                 "config": vars(args)}, temporary)
     temporary.replace(path)
@@ -154,6 +188,8 @@ def main(argv=None):
     start_step, epoch, best_loss = 0, 0, float("inf")
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu", weights_only=True)
+        if checkpoint.get("model_architecture", "post_ln_v0") != model.architecture:
+            raise ValueError("Checkpoint normalization architecture differs; start a fresh run for the Pre-LN model")
         if checkpoint["config"].get("hidden_dim", 512) != args.hidden_dim:
             raise ValueError("--hidden-dim must match the checkpoint's model width")
         model.load_state_dict(checkpoint["model"])
@@ -174,6 +210,7 @@ def main(argv=None):
         raise FileExistsError("This output directory already has last.pt; use --resume or a new --out")
     parameters = sum(p.numel() for p in model.parameters())
     config = {**vars(args), "parameters": parameters, "actual_device": str(device),
+              "model_architecture": model.architecture,
               "actual_precision": "bfloat16" if use_bf16 else "float32",
               "effective_batch_size": args.batch_size * args.grad_accum_steps,
               "train_cells": len(train_data), "validation_cells": n_val}
@@ -231,17 +268,22 @@ def main(argv=None):
                 loss_sum += loss.item() * n
                 correct += (logits.detach().argmax(dim=-1) == targets).sum().item()
                 cells += n
+            should_eval = step % args.eval_every == 0 or step == args.steps
+            should_log = step == start_step + 1 or step % args.log_every == 0 or should_eval
+            if should_log:
+                first_grad_rms = model.transformer_layers[0].self_attn.in_proj_weight.grad.float().square().mean().sqrt().item()
+                last_grad_rms = model.transformer_layers[-1].self_attn.in_proj_weight.grad.float().square().mean().sqrt().item()
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip,
                                                 error_if_nonfinite=True)
             optimizer.step()
 
-            should_eval = step % args.eval_every == 0 or step == args.steps
-            should_log = step == start_step + 1 or step % args.log_every == 0 or should_eval
             if should_log:
                 metrics = {"step": step, "epoch": epoch, "train/loss": loss_sum / cells,
                            "train/accuracy": correct / cells, "train/lr": lr,
                            "train/cells_per_update": step_cells,
                            "train/grad_norm": grad_norm.item(),
+                           "train/first_attention_grad_rms": first_grad_rms,
+                           "train/last_attention_grad_rms": last_grad_rms,
                            "train/cells_per_second": cells / (time.perf_counter() - window_start)}
                 print(f"Step {step:>6} | loss {metrics['train/loss']:.4f} | "
                       f"accuracy {metrics['train/accuracy']:.2%} | lr {lr:.2g}", flush=True)

@@ -1,0 +1,49 @@
+{
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "torch_version": "2.14.0+cu130",
+  "total_memory_gib": 79.1806640625,
+  "hidden_dim": 768,
+  "layers": 30,
+  "heads": 8,
+  "sequence_length": 512,
+  "parameters": 345695737,
+  "persistent_parameter_gradient_adam_bytes": 5531131792,
+  "precision": "FP32 parameters and optimizer states; BF16 autocast",
+  "scope": "synthetic dense 512-position cells; full forward/backward/clip/AdamW; no loader, evaluation or checkpoint saving",
+  "warmup_steps": 2,
+  "timed_steps": 3,
+  "trials": [
+    {
+      "batch_size": 64,
+      "status": "ok",
+      "seconds_per_step": 0.3289360123320269,
+      "cells_per_second": 194.5667169315551,
+      "gene_positions_per_second": 99618.15906895621,
+      "peak_allocated_gib": 35.922553062438965,
+      "peak_reserved_gib": 36.5546875,
+      "warmup_peak_allocated_gib": 35.92046642303467,
+      "step_seconds": [
+        0.32884873999864794,
+        0.328785350000544,
+        0.32917394699688884
+      ],
+      "last_loss": 5.82373046875
+    },
+    {
+      "batch_size": 128,
+      "status": "ok",
+      "seconds_per_step": 0.6276249286675011,
+      "cells_per_second": 203.94346074136098,
+      "gene_positions_per_second": 104419.05189957682,
+      "peak_allocated_gib": 67.2241039276123,
+      "peak_reserved_gib": 67.630859375,
+      "warmup_peak_allocated_gib": 67.22381162643433,
+      "step_seconds": [
+        0.6275289069999417,
+        0.6278403420001268,
+        0.6275055370024347
+      ],
+      "last_loss": 7.705810546875
+    }
+  ]
+}

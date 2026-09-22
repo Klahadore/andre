@@ -150,6 +150,46 @@ class TrainingLoopTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 train.parse_args(["--data-root", str(self.data)] + extra)
 
+    def test_context_only_learning_on_fixed_examples(self):
+        # All MASK counts are identical; only the visible gene context can
+        # distinguish these examples. This catches input-independent predictors.
+        torch.manual_seed(12)
+        with patch.object(model_module, "num_transformer_layers", 8), patch.object(model_module, "output_dim", 8):
+            model = model_module.Andre(width=16)
+        for layer in model.modules():
+            if isinstance(layer, torch.nn.Dropout):
+                layer.p = 0
+            elif isinstance(layer, torch.nn.MultiheadAttention):
+                layer.dropout = 0
+        ids = torch.tensor([[1, 100+i, 200, 201] for i in range(8)])
+        counts = torch.ones_like(ids)
+        attention = torch.ones_like(ids, dtype=torch.bool)
+        positions = torch.zeros(8, dtype=torch.long)
+        targets = torch.arange(8)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=.003, weight_decay=0)
+        for _ in range(100):
+            optimizer.zero_grad(set_to_none=True)
+            loss = torch.nn.functional.cross_entropy(model(ids, counts, attention, positions), targets)
+            loss.backward()
+            optimizer.step()
+        model.eval()
+        with torch.no_grad():
+            logits = model(ids, counts, attention, positions)
+            self.assertLess(torch.nn.functional.cross_entropy(logits, targets).item(), .15)
+            self.assertTrue(torch.equal(logits.argmax(-1), targets))
+            attention[:, 1:] = False
+            without_context = model(ids, counts, attention, positions)
+            self.assertGreater(torch.nn.functional.cross_entropy(without_context, targets).item(), 1.)
+
+    def test_legacy_postln_checkpoint_is_rejected(self):
+        out = self.root / "legacy"
+        train.main(self.command(out, 1))
+        checkpoint = torch.load(out / "last.pt", weights_only=True)
+        checkpoint.pop("model_architecture")
+        torch.save(checkpoint, out / "legacy.pt")
+        with self.assertRaisesRegex(ValueError, "normalization architecture differs"):
+            train.main(self.command(out, 2) + ["--resume", str(out / "legacy.pt")])
+
 
 if __name__ == "__main__":
     unittest.main()
