@@ -25,7 +25,9 @@ def parse_args(argv=None):
     parser.add_argument("--data-root", required=True, help="Built LMDB directory containing catalog.json")
     parser.add_argument("--out", default="runs/andre", help="Checkpoints and logs go here")
     parser.add_argument("--steps", type=int, default=1000, help="Total optimizer steps, including resumed steps")
-    parser.add_argument("--batch-size", type=int, default=16, help="Cells per optimizer step")
+    parser.add_argument("--batch-size", type=int, default=16, help="Cells per forward/backward pass")
+    parser.add_argument("--grad-accum-steps", type=int, default=1, help="Batches per optimizer update")
+    parser.add_argument("--hidden-dim", type=int, default=512, help="Model width; a positive multiple of 8")
     parser.add_argument("--context-length", type=int, default=512)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-4)
@@ -44,9 +46,11 @@ def parse_args(argv=None):
     parser.add_argument("--wandb-entity", default=None, help="Optional W&B team/user")
     parser.add_argument("--run-name", default=None)
     args = parser.parse_args(argv)
-    for name in ("steps", "batch_size", "context_length", "log_every", "eval_every", "val_batches"):
+    for name in ("steps", "batch_size", "grad_accum_steps", "hidden_dim", "context_length", "log_every", "eval_every", "val_batches"):
         if getattr(args, name) < 1:
             parser.error(f"--{name.replace('_', '-')} must be positive")
+    if args.hidden_dim % 8:
+        parser.error("--hidden-dim must be divisible by 8 attention heads")
     if args.workers < 0 or args.warmup_steps < 0 or args.weight_decay < 0:
         parser.error("workers, warmup-steps, and weight-decay must be nonnegative")
     if args.lr <= 0 or args.grad_clip <= 0:
@@ -142,7 +146,7 @@ def main(argv=None):
 
     # 2. Create the model and optimizer. Parameters stay float32; autocast below
     # uses bfloat16 for suitable GPU operations. BF16 does not need a GradScaler.
-    model = Andre().to(device)
+    model = Andre(width=args.hidden_dim).to(device)
     if (model.gene_embedding.num_embeddings != train_data.vocab_size
             or model.out_layer.out_features != train_data.vocab_size - 2):
         raise ValueError("Model vocabulary sizes must match catalog.json (including PAD/MASK at input only)")
@@ -150,6 +154,8 @@ def main(argv=None):
     start_step, epoch, best_loss = 0, 0, float("inf")
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu", weights_only=True)
+        if checkpoint["config"].get("hidden_dim", 512) != args.hidden_dim:
+            raise ValueError("--hidden-dim must match the checkpoint's model width")
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_step = checkpoint["step"]
@@ -169,9 +175,12 @@ def main(argv=None):
     parameters = sum(p.numel() for p in model.parameters())
     config = {**vars(args), "parameters": parameters, "actual_device": str(device),
               "actual_precision": "bfloat16" if use_bf16 else "float32",
+              "effective_batch_size": args.batch_size * args.grad_accum_steps,
               "train_cells": len(train_data), "validation_cells": n_val}
     print(f"Device: {device}; precision: {config['actual_precision']}; parameters: {parameters:,}")
     print(f"Train cells: {len(train_data):,}; fixed validation cells: {n_val:,}", flush=True)
+    print(f"Width: {args.hidden_dim}; effective batch: {args.batch_size} x "
+          f"{args.grad_accum_steps} = {config['effective_batch_size']}", flush=True)
     (out_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n")
 
     # Each invocation gets its own W&B run, even when resuming a checkpoint.
@@ -187,42 +196,51 @@ def main(argv=None):
         window_start = time.perf_counter()
 
         for step in range(start_step + 1, args.steps + 1):
-            try:
-                batch = next(batches)
-            except StopIteration:
-                epoch += 1
-                sampler.set_epoch(epoch)
-                batches = iter(train_loader)
-                batch = next(batches)
-            batch = move_batch(batch, device)
-            targets = batch["targets"] - 2
+            # Keep only input tensors on CPU here, not model activations.
+            # Count the actual cells so a short end-of-epoch batch is weighted correctly.
+            microbatches = []
+            for _ in range(args.grad_accum_steps):
+                try:
+                    batch = next(batches)
+                except StopIteration:
+                    epoch += 1
+                    sampler.set_epoch(epoch)
+                    batches = iter(train_loader)
+                    batch = next(batches)
+                microbatches.append(batch)
+            step_cells = sum(batch["targets"].numel() for batch in microbatches)
 
             # 3. Warm up the learning rate, then hold it constant.
             lr = args.lr * min(1.0, step / max(1, args.warmup_steps))
             for group in optimizer.param_groups:
                 group["lr"] = lr
 
-            # 4. The core training step: clear -> predict -> loss -> gradients -> update.
+            # 4. Clear once, accumulate gradients at unchanged weights, then update once.
             optimizer.zero_grad(set_to_none=True)
-            with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
-                logits = predict(model, batch)
-                loss = nn.functional.cross_entropy(logits, targets)
-            if not torch.isfinite(loss):
-                raise FloatingPointError(f"Nonfinite training loss at step {step}")
-            loss.backward()
+            for batch in microbatches:
+                batch = move_batch(batch, device)
+                targets = batch["targets"] - 2
+                n = targets.numel()
+                with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
+                    logits = predict(model, batch)
+                    loss = nn.functional.cross_entropy(logits, targets)
+                if not torch.isfinite(loss):
+                    raise FloatingPointError(f"Nonfinite training loss at step {step}")
+                # Two full microbatches each contribute loss / 2.
+                (loss * (n / step_cells)).backward()
+                loss_sum += loss.item() * n
+                correct += (logits.detach().argmax(dim=-1) == targets).sum().item()
+                cells += n
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip,
                                                 error_if_nonfinite=True)
             optimizer.step()
 
-            n = targets.numel()
-            loss_sum += loss.item() * n
-            correct += (logits.detach().argmax(dim=-1) == targets).sum().item()
-            cells += n
             should_eval = step % args.eval_every == 0 or step == args.steps
             should_log = step == start_step + 1 or step % args.log_every == 0 or should_eval
             if should_log:
                 metrics = {"step": step, "epoch": epoch, "train/loss": loss_sum / cells,
                            "train/accuracy": correct / cells, "train/lr": lr,
+                           "train/cells_per_update": step_cells,
                            "train/grad_norm": grad_norm.item(),
                            "train/cells_per_second": cells / (time.perf_counter() - window_start)}
                 print(f"Step {step:>6} | loss {metrics['train/loss']:.4f} | "

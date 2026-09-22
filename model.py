@@ -8,15 +8,18 @@ num_transformer_layers = 30
 output_dim = 36601
 
 class Andre(nn.Module):
-    def __init__(self):
+    def __init__(self, width=None):
         super().__init__()
-        self.count_embedding = nn.Embedding(num_embeddings=100_001, padding_idx=0, embedding_dim=hidden_dim)
-        self.gene_embedding = nn.Embedding(num_embeddings=36601+2, padding_idx=0, embedding_dim=hidden_dim)
+        width = hidden_dim if width is None else width
+        if width < 1 or width % 8:
+            raise ValueError("Model width must be positive and divisible by 8 attention heads")
+        self.count_embedding = nn.Embedding(num_embeddings=100_001, padding_idx=0, embedding_dim=width)
+        self.gene_embedding = nn.Embedding(num_embeddings=36601+2, padding_idx=0, embedding_dim=width)
 
         self.transformer_layers = nn.ModuleList([nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=8, dim_feedforward=hidden_dim*4, batch_first=True) for i in range(num_transformer_layers)])
+            d_model=width, nhead=8, dim_feedforward=width*4, batch_first=True) for i in range(num_transformer_layers)])
 
-        self.out_layer = nn.Linear(hidden_dim, output_dim)
+        self.out_layer = nn.Linear(width, output_dim)
 
     def forward(self, gene_ids, counts, attention_mask, mask_position):
         count_ids = counts.clamp(max=100_000).long()

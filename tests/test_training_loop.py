@@ -52,6 +52,7 @@ class TrainingLoopTests(unittest.TestCase):
 
     def command(self, out, steps, workers=0):
         return ["--data-root", str(self.data), "--out", str(out),
+                "--hidden-dim", "16",
                 "--steps", str(steps), "--batch-size", "2", "--context-length", "4",
                 "--workers", str(workers), "--val-batches", "2", "--eval-every", "2",
                 "--log-every", "1", "--warmup-steps", "2", "--device", "cpu"]
@@ -101,6 +102,53 @@ class TrainingLoopTests(unittest.TestCase):
         args[1] = str(self.root / "not-built")
         with self.assertRaisesRegex(FileNotFoundError, "catalog.json"):
             train.main(args)
+
+    def test_accumulation_matches_full_batch_with_unequal_microbatches(self):
+        # Three cells: compare one batch of 3 against batches of 2 and 1.
+        # Disable dropout so RNG differences cannot obscure gradient averaging.
+        models = []
+
+        def make_model(width):
+            model = model_module.Andre(width=width)
+            for layer in model.modules():
+                if isinstance(layer, torch.nn.Dropout):
+                    layer.p = 0
+                elif isinstance(layer, torch.nn.MultiheadAttention):
+                    layer.dropout = 0
+            models.append(model)
+            return model
+
+        with patch.object(train, "Andre", side_effect=make_model):
+            full = self.root / "full"
+            train.main(self.command(full, 1) + ["--batch-size", "3", "--grad-clip", "100000"])
+            accumulated = self.root / "accumulated"
+            train.main(self.command(accumulated, 1) + ["--grad-accum-steps", "2", "--grad-clip", "100000"])
+
+        for full_param, accumulated_param in zip(models[0].parameters(), models[1].parameters()):
+            torch.testing.assert_close(full_param.grad, accumulated_param.grad, rtol=2e-5, atol=1e-6)
+        config = json.loads((accumulated / "config.json").read_text())
+        self.assertEqual(config["hidden_dim"], 16)
+        self.assertEqual(config["effective_batch_size"], 4)
+        metrics = json.loads((accumulated / "metrics.jsonl").read_text())
+        self.assertEqual(metrics["train/cells_per_update"], 3)
+        checkpoint = torch.load(accumulated / "last.pt", weights_only=True)
+        self.assertTrue(all(s["step"].item() == 1 for s in checkpoint["optimizer"]["state"].values()))
+        # Resume also keeps optimizer steps distinct from microbatch count.
+        train.main(self.command(accumulated, 2) + ["--grad-accum-steps", "2", "--resume", str(accumulated / "last.pt")])
+        checkpoint = torch.load(accumulated / "last.pt", weights_only=True)
+        self.assertTrue(all(s["step"].item() == 2 for s in checkpoint["optimizer"]["state"].values()))
+
+    def test_explicit_model_width_and_invalid_configuration(self):
+        with torch.device("meta"):
+            model = model_module.Andre(width=768)
+        self.assertEqual(model.gene_embedding.embedding_dim, 768)
+        self.assertEqual(model.transformer_layers[0].linear1.out_features, 768 * 4)
+        self.assertEqual(model.out_layer.in_features, 768)
+        with self.assertRaisesRegex(ValueError, "divisible by 8"):
+            model_module.Andre(width=767)
+        for extra in (["--hidden-dim", "767"], ["--grad-accum-steps", "0"]):
+            with self.assertRaises(SystemExit):
+                train.parse_args(["--data-root", str(self.data)] + extra)
 
 
 if __name__ == "__main__":

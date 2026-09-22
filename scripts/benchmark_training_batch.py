@@ -35,9 +35,8 @@ def main():
         raise RuntimeError("Requires a CUDA device supporting BF16")
     torch.manual_seed(42)
     torch.set_float32_matmul_precision("high")
-    model_module.hidden_dim = args.hidden_dim
     with torch.device("cuda"):
-        model = model_module.Andre()
+        model = model_module.Andre(width=args.hidden_dim)
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.01)
     parameters = sum(p.numel() for p in model.parameters())
