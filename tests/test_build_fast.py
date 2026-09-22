@@ -1,4 +1,5 @@
 import json
+import fcntl
 from pathlib import Path
 import subprocess
 import sys
@@ -81,6 +82,11 @@ class FastBuildTests(unittest.TestCase):
                             '--data-root', str(data), '--source-samples', '2',
                             '--expected-cells', '164', '--expected-nnz', '492'],
                            check=True, capture_output=True)
+            with (root/'published/.build.lock').open('w') as lock:
+                fcntl.lockf(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                blocked = subprocess.run(command, capture_output=True, text=True)
+                self.assertNotEqual(blocked.returncode, 0)
+                self.assertIn('BlockingIOError', blocked.stderr)
 
     def test_missing_vocab_has_actionable_error(self):
         with self.assertRaisesRegex(FileNotFoundError,'Copy the notebook'):

@@ -362,7 +362,9 @@ def main():
     with ExitStack() as stack:
         for root in sorted({args.out.resolve(), output_root.resolve()}):
             lock = stack.enter_context((root / ".build.lock").open("w"))
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # POSIX locks interoperate between a local writer and an NFS client;
+            # mixing local BSD flock with NFS-emulated flock does not.
+            fcntl.lockf(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         shards = {}
         totals = Counter()
         total_bytes = 0

@@ -1,7 +1,4 @@
 """Optional compiled preparation of the existing lossless cell record format."""
-import struct
-import zlib
-
 import numpy as np
 
 try:

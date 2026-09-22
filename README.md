@@ -142,3 +142,32 @@ The exact notebook vocabulary is required. If it is missing remotely, copy
 `data/gene_to_id.csv` from the local checkout; do not regenerate a differently
 ordered vocabulary. The converter now reports the absolute missing path and
 this recovery step.
+
+## Completed full build (2026-09-22 UTC)
+
+The complete dataset is available on the H100 host at
+`/opt/dlami/nvme/andre/lmdb`; no rebuild is needed to start training.
+
+- 18,758 shards; 153,486,103 cells; 492.10 GiB of LMDB data.
+- Train: 122,793,289; validation: 15,345,138; test: 15,347,676.
+- Conversion: approximately 10 minutes 20 seconds including a scheduler restart;
+  the resumed run took 515.5 seconds. It used 96 workers on a temporary
+  c7i.48xlarge in the same availability zone, publishing to the H100 NVMe.
+- Verification: all shard sizes and packed-record counts checked; cell and
+  nonzero totals match the independent source audit exactly (347,909,504,795
+  nonzero entries). 124 cells sampled across source files, including each
+  sampled file's maximum-count cell where retained, match independent H5AD
+  reads. Verification took 65 seconds.
+- H100-host CPU loader smoke benchmark: 25,600 cells in 1.540 seconds after
+  startup, or about 16,600 cells/s with four workers and batches of 256. This
+  includes sampling/collation and excludes model execution and GPU transfer;
+  it is not a controlled cold-cache benchmark.
+
+The vocabulary CSV is tracked in Git. The output directory includes
+`build.log`, `build-run.json`, and `verification.json` for provenance.
+
+```sh
+uv run scripts/verify_dataset.py /opt/dlami/nvme/andre/lmdb \
+  --data-root /opt/dlami/nvme/andre/data \
+  --expected-cells 153486103 --expected-nnz 347909504795
+```
