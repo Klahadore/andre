@@ -246,6 +246,12 @@ _WORKER = None
 
 def _init_worker(config):
     global _WORKER
+    # Passing the 36k-entry mapping through every spawn pipe serializes worker
+    # startup. Load its small local CSV once inside each child instead.
+    if "vocab" not in config:
+        config["vocab"], digest = load_vocab(config["vocab_path"])
+        if digest != config["vocab_hash"]:
+            raise ValueError("Vocabulary changed while starting workers")
     _WORKER = config
 
 
@@ -350,7 +356,7 @@ def main():
     if args.publish_to and args.out.resolve() == args.publish_to.resolve():
         parser.error("--publish-to must differ from the local --out staging directory")
     config = dict(data_root=args.data_root, out=args.out, publish_to=args.publish_to,
-                  vocab=vocab, vocab_hash=vocab_hash, matrix_memory_gib=args.matrix_memory_gib,
+                  vocab_path=args.vocab, vocab_hash=vocab_hash, matrix_memory_gib=args.matrix_memory_gib,
                   reserve_gib=args.reserve_gib)
     # Hold both locks when staging locally and publishing to another filesystem.
     with ExitStack() as stack:
@@ -359,16 +365,18 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         shards = {}
         totals = Counter()
+        total_bytes = 0
         started = time.monotonic()
         for i, (accession, meta) in enumerate(convert_all(
                 accessions, config, args.workers, args.memory_budget_gib)):
             totals.update(meta["counts"])
+            total_bytes += meta["database_bytes"]
             shards[accession] = {"path": f"shards/{accession}", "counts": meta["counts"],
                                 "database_bytes": meta["database_bytes"]}
             elapsed = time.monotonic() - started
             progress = {"files_done": i+1, "files_total": len(accessions),
                         "cells_done": sum(totals.values()), "elapsed_seconds": round(elapsed, 1),
-                        "output_bytes": sum(s["database_bytes"] for s in shards.values())}
+                        "output_bytes": total_bytes}
             if (i+1) % 10 == 0 or i == 0 or i+1 == len(accessions):
                 atomic_json(output_root / "progress.json", progress)
                 print(json.dumps(progress), flush=True)

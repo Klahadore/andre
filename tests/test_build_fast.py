@@ -77,6 +77,10 @@ class FastBuildTests(unittest.TestCase):
                                 np.testing.assert_array_equal(sample['counts'],[1,3,213654])
             subprocess.run(command,check=True,capture_output=True)
             self.assertEqual(catalog,json.loads((root/'published/catalog.json').read_text()))
+            subprocess.run([sys.executable, 'scripts/verify_dataset.py', str(root/'published'),
+                            '--data-root', str(data), '--source-samples', '2',
+                            '--expected-cells', '164', '--expected-nnz', '492'],
+                           check=True, capture_output=True)
 
     def test_missing_vocab_has_actionable_error(self):
         with self.assertRaisesRegex(FileNotFoundError,'Copy the notebook'):
