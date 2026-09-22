@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "duckdb>=1.5.5",
+    "einops>=0.8.2",
     "gcsfs>=2026.8.1",
     "lmdb>=2.3.0",
     "scanpy>=1.12.4",
