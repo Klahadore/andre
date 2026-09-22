@@ -63,8 +63,8 @@ def main():
             logits = predict(model, batch)
         loss = F.cross_entropy(logits.float(), batch["targets"] - 2)
         loss.backward()
-        # Compare both ends of the stack. Double precision keeps this large
-        # CPU cosine reduction from rounding above 1.
+        # Compare both ends of the stack. Double precision reduces roundoff
+        # in this large CPU cosine calculation.
         gradient = torch.cat([
             model.transformer_layers[index].self_attn.in_proj_weight.grad.flatten()
             for index in [0, len(model.transformer_layers) - 1]
