@@ -204,6 +204,43 @@ class TrainingLoopTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "normalization architecture differs"):
             train.main(self.command(out, 2) + ["--resume", str(out / "legacy.pt")])
 
+    def test_legacy_preln_checkpoint_is_rejected(self):
+        out = self.root / "legacy-preln"
+        train.main(self.command(out, 1))
+        checkpoint = torch.load(out / "last.pt", weights_only=True)
+        checkpoint["model_architecture"] = "pre_ln_v1"
+        torch.save(checkpoint, out / "legacy.pt")
+        with self.assertRaisesRegex(ValueError, "normalization architecture differs"):
+            train.main(self.command(out, 2) + ["--resume", str(out / "legacy.pt")])
+
+    def test_query_key_scores_stay_bounded_when_projections_grow(self):
+        torch.manual_seed(9)
+        q = (torch.randn(2, 8, 7, 64) * 1e6).requires_grad_()
+        k = (torch.randn(2, 8, 7, 64) * 1e6).requires_grad_()
+        scores = model_module.normalize_qk(q) @ model_module.normalize_qk(k).transpose(-1, -2) / 8
+        self.assertLessEqual(scores.abs().max().item(), 8.0001)
+        smaller = model_module.normalize_qk(q / 1000) @ model_module.normalize_qk(k / 1000).transpose(-1, -2) / 8
+        torch.testing.assert_close(scores, smaller)
+        scores.square().mean().backward()
+        self.assertTrue(torch.isfinite(q.grad).all() and torch.isfinite(k.grad).all())
+        self.assertGreater(q.grad.norm().item(), 0)
+
+    def test_qknorm_padding_permutation_and_eval_paths_agree(self):
+        model = model_module.Andre().eval()
+        ids = torch.tensor([[1, 100, 200, 0]])
+        counts = torch.tensor([[3, 5, 2, 0]])
+        mask = ids != 0
+        position = torch.tensor([0])
+        expected = model(ids, counts, mask, position)
+        with torch.no_grad():
+            torch.testing.assert_close(model(ids, counts, mask, position), expected)
+            # Changing an ignored key must not affect the real MASK prediction.
+            ids[0, 3], counts[0, 3] = 1234, 90000
+            torch.testing.assert_close(model(ids, counts, mask, position), expected)
+            order = torch.tensor([2, 3, 0, 1])
+            torch.testing.assert_close(model(ids[:, order], counts[:, order], mask[:, order],
+                                            torch.tensor([2])), expected)
+
     def test_compiled_blocks_save_and_resume_without_compilation(self):
         # The eager backend exercises Dynamo's wrapper on CPU without requiring
         # a local C++ compiler. H100 kernel speed/correctness is measured separately.

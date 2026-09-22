@@ -6,8 +6,8 @@ The model architecture stays in `model.py`; the dataset and collator stay in
 
 ## A first run
 
-Wait for the other agent's dataset build to publish `catalog.json`. Use the
-directory containing that file as `--data-root`; this is the **LMDB output**,
+Use the directory containing the completed build's `catalog.json` as
+`--data-root`; this is the **LMDB output**,
 not the downloaded H5AD directory. Replace the example path if the build uses
 a different name.
 
@@ -95,7 +95,7 @@ W&B records the configured `effective_batch_size` and actual `train/cells_per_up
 
 The learning rate starts small, increases linearly for `--warmup-steps` (100
 by default), then stays at `--lr` (0.0003 by default). There is no distributed
-training or compilation in this introductory loop.
+training. Compilation is optional through `--compile-layers`.
 
 ## Validation and logging
 
@@ -185,8 +185,8 @@ The older post-LN checkpoint produced essentially identical outputs for
 unrelated cells and had vanishing gradients in early attention layers.
 
 Start fresh when changing normalization. Checkpoints record
-`model_architecture=pre_ln_v1`; the trainer rejects older post-LN checkpoints
-rather than silently treating them as the new model.
+`model_architecture=pre_ln_qknorm_v2`; the trainer rejects both older post-LN
+and pre-LN checkpoints rather than silently changing their computation.
 
 In addition to loss and accuracy, W&B now shows:
 
@@ -219,7 +219,9 @@ uv run scripts/investigate_collapse.py \
 
 The probes use identical cells, gene samples and masks across configurations,
 keep all 30 layers and all 36,601 output classes, and compare normal predictions
-with context hidden and targets shuffled. They do not resume a production run.
+with context hidden and targets shuffled. This historical pre-LN/post-LN
+comparison explicitly disables QK normalization. Use `validate_bf16.py` below
+to check the current architecture. Neither probe resumes a production run.
 
 ## Optional compilation
 
@@ -231,7 +233,7 @@ differ, so compiled and eager runs are not bitwise reproducible.
 
 Compilation happens in place, preserving checkpoint parameter names. A compiled
 checkpoint can resume without the flag, and an eager pre-LN checkpoint can resume
-with it. The usual resume limitation about shuffle/RNG state still applies.
+with it, provided both use the same normalization architecture. The usual resume limitation about shuffle/RNG state still applies.
 Measure memory and speed on the actual GPU before using it for a long run:
 
 ```bash
@@ -272,3 +274,57 @@ together. It improves loader-only throughput but can give 32 successive
 128-cell updates from one accession. Measured global random reads already
 exceeded either model's consumption rate. Sampling mode is recorded in the run
 configuration, and resuming with a different mode prints the change.
+
+## BF16 configuration and normalized attention
+
+The current model also normalizes each query and key **within its attention
+head**, after their linear projections. `normalize_qk()` computes unit RMS in
+FP32, then returns BF16 values to attention when autocast is enabled. There is
+no learned gain. With the usual attention scale, query-key scores are bounded
+approximately by `sqrt(head_dim)` in magnitude. This prevents growing projection
+norms from making the logits arbitrarily sharp; it does not guarantee that every
+attention distribution stays diffuse or that the model will generalize.
+
+`configure_cuda_precision()` and the model use these settings:
+
+- Parameters, accumulated gradients, and AdamW moment buffers stay FP32. Do not
+  call `model.bfloat16()`; use `--precision bfloat16` for autocast instead.
+- Suitable matrix multiplications use BF16 inputs. Reduced-precision BF16 GEMM
+  reductions are disabled. FP32 operations use full FP32 rather than TF32.
+- Q/K normalization and cross-entropy explicitly use FP32. The math SDPA fallback
+  keeps its FP32 intermediates; its reduced-precision option is disabled.
+- Attention allows cuDNN, Flash, or math SDPA and excludes the memory-efficient
+  implementation that failed the numerical probe. Attention dropout defaults
+  to zero; residual and feed-forward dropout remain 0.1.
+- BF16 does not use a GradScaler. Finite checks, gradient clipping, and the
+  pre-update maximum-gradient guard remain enabled.
+
+This is a new architecture, `pre_ln_qknorm_v2`. Start fresh instead of resuming
+one of the failed older runs. The old checkpoints are retained for comparison.
+The count cap, gene vocabulary, masked-gene objective, and effective-batch
+calculation are unchanged.
+
+To compare eager FP32, eager BF16, and compiled BF16 on the same eight real
+validation cells, without updating weights:
+
+```bash
+uv run scripts/validate_bf16.py --width 768 \
+  --data-root /opt/dlami/nvme/andre/lmdb \
+  --out runs/bf16-validation-768.json
+```
+
+An optional `--checkpoint PATH` transfers weights into the current architecture
+for diagnosis only. This is deliberately different from `train.py --resume`,
+which checks architecture compatibility. The probe also exercises compiled
+training with residual/FFN dropout enabled. Its numerical tolerances are a
+regression check, not proof of long-run training quality.
+
+For a systemd training job launched over SSH, include `--property=PAMName=login`
+in `sudo systemd-run --uid=ubuntu ...`. This gives the job its own login session.
+On these nodes, otherwise logging out of SSH can remove the DataLoader workers'
+POSIX semaphores before they finish starting (`FileNotFoundError` in `SemLock`).
+That startup failure is separate from GPU memory or model numerical failures.
+
+PyTorch documents the precision switches in its
+[numerical accuracy notes](https://docs.pytorch.org/docs/2.12/notes/numerical_accuracy.html)
+and [backend configuration reference](https://docs.pytorch.org/docs/stable/backends.html).

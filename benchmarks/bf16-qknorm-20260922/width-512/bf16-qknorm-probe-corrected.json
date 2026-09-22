@@ -1,0 +1,57 @@
+[
+  {
+    "mode": "fp32",
+    "width": 512,
+    "source_step": 111000,
+    "loss": 9.715742111206055,
+    "grad_norm": 2.161548376083374,
+    "logits_dtype": "torch.float32",
+    "parameter_dtype": "torch.float32",
+    "gradient_dtype": "torch.float32",
+    "max_logit_error": 0.0,
+    "attention_gradient_relative_error": 0.0,
+    "attention_gradient_cosine": 0.999999999999908
+  },
+  {
+    "mode": "bf16",
+    "width": 512,
+    "source_step": 111000,
+    "loss": 9.714475631713867,
+    "grad_norm": 2.163586378097534,
+    "logits_dtype": "torch.bfloat16",
+    "parameter_dtype": "torch.float32",
+    "gradient_dtype": "torch.float32",
+    "max_logit_error": 0.07262992858886719,
+    "attention_gradient_relative_error": 0.009674222433418568,
+    "attention_gradient_cosine": 0.9999545565268528
+  },
+  {
+    "mode": "compiled_bf16",
+    "width": 512,
+    "source_step": 111000,
+    "loss": 9.7142915725708,
+    "grad_norm": 2.1642324924468994,
+    "logits_dtype": "torch.bfloat16",
+    "parameter_dtype": "torch.float32",
+    "gradient_dtype": "torch.float32",
+    "max_logit_error": 0.07262992858886719,
+    "attention_gradient_relative_error": 0.011036657376223677,
+    "attention_gradient_cosine": 0.9999432421388823
+  },
+  {
+    "mode": "compiled_bf16_train_dropout",
+    "seed": 42,
+    "width": 512,
+    "source_step": 111000,
+    "loss": 9.705297470092773,
+    "grad_norm": 2.1613738536834717
+  },
+  {
+    "mode": "compiled_bf16_train_dropout",
+    "seed": 123,
+    "width": 512,
+    "source_step": 111000,
+    "loss": 9.686562538146973,
+    "grad_norm": 2.049826145172119
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "torch_version": "2.14.0+cu130",
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "operators": [
+    "aten::scaled_dot_product_attention",
+    "aten::_scaled_dot_product_cudnn_attention",
+    "aten::_cudnn_attention_forward",
+    "aten::_scaled_dot_product_cudnn_attention_backward",
+    "aten::_cudnn_attention_backward"
+  ],
+  "activation_dtypes": {
+    "norm1": "torch.float32",
+    "ffn_linear1": "torch.bfloat16",
+    "final_norm": "torch.float32"
+  },
+  "bf16_reduced_precision_reduction": false,
+  "math_sdp_reduced_precision": false
+}

@@ -16,6 +16,7 @@ from torch import nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import model as model_module
+from train import configure_cuda_precision
 
 
 def main():
@@ -35,7 +36,7 @@ def main():
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise RuntimeError("Requires a CUDA device supporting BF16")
     torch.manual_seed(42)
-    torch.set_float32_matmul_precision("high")
+    configure_cuda_precision()
     with torch.device("cuda"):
         model = model_module.Andre(width=args.hidden_dim)
     model.train()
@@ -59,7 +60,7 @@ def main():
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast("cuda", dtype=torch.bfloat16):
             logits = model(batch["ids"], batch["counts"], batch["mask"], batch["positions"])
-            loss = nn.functional.cross_entropy(logits, batch["targets"])
+            loss = nn.functional.cross_entropy(logits.float(), batch["targets"])
         if not torch.isfinite(loss):
             raise FloatingPointError("Nonfinite loss")
         loss.backward()

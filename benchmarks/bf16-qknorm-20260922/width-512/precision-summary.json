@@ -1,0 +1,58 @@
+{
+  "width": 512,
+  "checkpoint_step": 2000,
+  "architecture": "pre_ln_qknorm_v2",
+  "parameter_dtypes": [
+    "torch.float32"
+  ],
+  "optimizer_tensor_dtypes": [
+    "torch.float32"
+  ],
+  "max_logged_grad_norm": 5.036447048187256,
+  "validation": [
+    {
+      "step": 500,
+      "val/loss": 9.44807300567627,
+      "val/accuracy": 0.00046875,
+      "val/cells": 6400,
+      "val/prediction_kl_to_mean": 0.0688909721374511,
+      "val/unique_top1_predictions": 9,
+      "val/context_gain": 0.24132442474365234,
+      "val/shuffled_context_gain": 0.1156606674194336,
+      "val/context_probe_cells": 128
+    },
+    {
+      "step": 1000,
+      "val/loss": 9.31408332824707,
+      "val/accuracy": 0.00078125,
+      "val/cells": 6400,
+      "val/prediction_kl_to_mean": 0.12731649398803668,
+      "val/unique_top1_predictions": 6,
+      "val/context_gain": 0.22571849822998047,
+      "val/shuffled_context_gain": 0.10668087005615234,
+      "val/context_probe_cells": 128
+    },
+    {
+      "step": 1500,
+      "val/loss": 9.240764198303223,
+      "val/accuracy": 0.00046875,
+      "val/cells": 6400,
+      "val/prediction_kl_to_mean": 0.1887079048156739,
+      "val/unique_top1_predictions": 15,
+      "val/context_gain": 0.46309471130371094,
+      "val/shuffled_context_gain": 0.17785358428955078,
+      "val/context_probe_cells": 128
+    },
+    {
+      "step": 2000,
+      "val/loss": 9.195542907714843,
+      "val/accuracy": 0.00125,
+      "val/cells": 6400,
+      "val/prediction_kl_to_mean": 0.18709125518798864,
+      "val/unique_top1_predictions": 16,
+      "val/context_gain": 0.5243253707885742,
+      "val/shuffled_context_gain": 0.26034069061279297,
+      "val/context_probe_cells": 128
+    }
+  ]
+}

@@ -9,7 +9,7 @@ torch.set_num_threads(4);torch.set_float32_matmul_precision('highest')
 ds=ScBaseCountDataset('/opt/dlami/nvme/andre/lmdb','val');torch.manual_seed(43)
 b={k:v.cuda() for k,v in collate_fn(ds.__getitems__(random.Random(43).sample(range(len(ds)),8)),512).items()}
 c=torch.load('/opt/dlami/nvme/andre/runs/width-768-preln-compiled-10b-tokens/last.pt',map_location='cpu',weights_only=True,mmap=True)
-m=Andre(width=768).cuda();m.load_state_dict(c['model']);del c;m.train()
+m=Andre(width=768, qk_norm=False).cuda();m.load_state_dict(c['model']);del c;m.train()
 results=[]
 for backend in ['default','math','efficient','cudnn','flash']:
  for which in ['all','attention_only','residual_only']:

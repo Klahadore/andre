@@ -4,6 +4,11 @@ The pre-LN change did not resolve long-run training. The width-768 run diverged;
 the width-512 run learned a small amount but plateaued. Both full runs remain stopped. Paired streaming continuation tests and a
 separate sampling comparison are complete; results below do not establish a
 complete long-run recovery.
+Follow-up implementation and BF16 validation are recorded in
+[the QK-normalization report](../bf16-qknorm-20260922/README.md).
+The historical scripts here explicitly disable QK normalization to reproduce
+the original architecture.
+
 The experiments below used code commit 2168ce0, PyTorch 2.14.0+cu130, and H100 GPUs.
 
 ## Confirmed numerical failure

@@ -20,7 +20,7 @@ def main():
  for attention_dropout in [0.]:
   torch.manual_seed(4242)
   c=torch.load(root/f'runs/width-{a.width}-preln-compiled-10b-tokens/best.pt',map_location='cpu',weights_only=True,mmap=True)
-  m=Andre(width=a.width).cuda();m.load_state_dict(c['model']);o=torch.optim.AdamW(m.parameters(),lr=.0003);o.load_state_dict(c['optimizer']);source_step=c['step'];del c
+  m=Andre(width=a.width, qk_norm=False).cuda();m.load_state_dict(c['model']);o=torch.optim.AdamW(m.parameters(),lr=.0003);o.load_state_dict(c['optimizer']);source_step=c['step'];del c
   for g in o.param_groups:g['lr']=.0003
   for l in m.transformer_layers:l.self_attn.dropout=attention_dropout;l.compile(dynamic=False)
   sampler=random.Random(4242).sample(range(len(train)),a.steps*128)

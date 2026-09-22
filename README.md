@@ -75,7 +75,8 @@ from dataset import ScBaseCountDataset, BlockShuffleSampler, collate_fn
 # Put DataLoader construction inside main() with an __main__ guard when
 # using spawn in a Python script.
 dataset = ScBaseCountDataset("/opt/dlami/nvme/andre/lmdb", split="train")
-sampler = BlockShuffleSampler(dataset, block_size=4096, seed=42)
+# Shuffle across the entire corpus, matching train.py --sampling global.
+sampler = BlockShuffleSampler(dataset, block_size=len(dataset), seed=42)
 loader = DataLoader(
     dataset, batch_size=256, sampler=sampler, collate_fn=collate_fn,
     num_workers=8, persistent_workers=True, prefetch_factor=2,
@@ -184,8 +185,8 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 uv run scripts/benchmark_loader_detail.
 A **storage record** holds up to 32 cells from one accession and split. It
 preserves every expressed gene/count pair; each cell is independently compressed
 and can be decoded without decompressing its neighbors. The final record in a
-shard/split may contain fewer cells. A **shuffle block** is a logical group of
-4,096 cells, shuffled internally before moving to another group; it is not one
+shard/split may contain fewer cells. In this historical locality benchmark, a
+**shuffle block** is a logical group of 4,096 cells, shuffled internally before moving to another group; it is not one
 LMDB value or an atomic read. A **training batch** here contains 256 cells, each
 sampled/padded to 512 gene positions, with one masked gene identity per cell.
 

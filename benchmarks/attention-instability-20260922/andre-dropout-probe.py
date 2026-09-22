@@ -10,7 +10,7 @@ b={k:v.cuda() for k,v in collate_fn(ds.__getitems__(random.Random(43).sample(ran
 results=[]
 for filename in ['last.pt','best.pt']:
  c=torch.load(Path('/opt/dlami/nvme/andre/runs/width-768-preln-compiled-10b-tokens')/filename,map_location='cpu',weights_only=True,mmap=True)
- m=Andre(width=768).cuda();m.load_state_dict(c['model']);step=c['step'];del c
+ m=Andre(width=768, qk_norm=False).cuda();m.load_state_dict(c['model']);step=c['step'];del c
  m.train()
  for mode in ['eager_bf16','eager_fp32','compiled_bf16']:
   if mode=='compiled_bf16':

@@ -80,6 +80,13 @@ def predict(model, batch):
                  batch["attention_mask"], batch["mask_positions"])
 
 
+def configure_cuda_precision():
+    """BF16 matrix inputs, FP32 accumulation/reductions and FP32 master weights."""
+    torch.set_float32_matmul_precision("highest")
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+    torch.backends.cuda.allow_fp16_bf16_reduction_math_sdp(False)
+
+
 @torch.no_grad()
 def evaluate(model, loader, device, use_bf16, seed):
     """Same validation cells, sampled genes, and MASK positions at each check."""
@@ -98,7 +105,7 @@ def evaluate(model, loader, device, use_bf16, seed):
             targets = batch["targets"] - 2  # PAD=0, MASK=1; gene classes start at 0.
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
                 logits = predict(model, batch)
-                loss = nn.functional.cross_entropy(logits, targets)
+                loss = nn.functional.cross_entropy(logits.float(), targets)
             if not torch.isfinite(loss):
                 raise FloatingPointError("Validation loss is not finite")
             n = targets.numel()
@@ -124,14 +131,14 @@ def evaluate(model, loader, device, use_bf16, seed):
                 contextless["attention_mask"][rows, contextless["mask_positions"]] = True
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
                     context_logits = predict(model, contextless)
-                    context_loss = nn.functional.cross_entropy(context_logits, targets[:take])
+                    context_loss = nn.functional.cross_entropy(context_logits.float(), targets[:take])
                     # A second check uses another cell's context while preserving
                     # this target's MASK count. Unlike removing all context, this
                     # keeps a normal-sized input and tests context relevance.
                     shuffled = {name: tensor[:take].roll(1, 0) for name, tensor in batch.items()}
                     shuffled["counts"][rows, shuffled["mask_positions"]] = batch["counts"][rows, batch["mask_positions"][:take]]
                     shuffled_logits = predict(model, shuffled)
-                    shuffled_loss = nn.functional.cross_entropy(shuffled_logits, targets[:take])
+                    shuffled_loss = nn.functional.cross_entropy(shuffled_logits.float(), targets[:take])
                 context_loss_sum += context_loss.item() * take
                 shuffled_context_loss_sum += shuffled_loss.item() * take
                 context_full_loss_sum += nn.functional.cross_entropy(logits[:take].float(), targets[:take]).item() * take
@@ -170,7 +177,7 @@ def main(argv=None):
         raise ValueError("This script uses bfloat16 only on a supported CUDA GPU")
     use_bf16 = bf16_available and args.precision != "float32"
     if device.type == "cuda":
-        torch.set_float32_matmul_precision("high")
+        configure_cuda_precision()
 
     # 1. Load the completed dataset. Do not start from a builder's partial shards.
     if not (Path(args.data_root) / "catalog.json").is_file():
@@ -214,7 +221,7 @@ def main(argv=None):
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu", weights_only=True)
         if checkpoint.get("model_architecture", "post_ln_v0") != model.architecture:
-            raise ValueError("Checkpoint normalization architecture differs; start a fresh run for the Pre-LN model")
+            raise ValueError("Checkpoint normalization architecture differs; start a fresh run for the current model")
         if checkpoint["config"].get("hidden_dim", 512) != args.hidden_dim:
             raise ValueError("--hidden-dim must match the checkpoint's model width")
         model.load_state_dict(checkpoint["model"])
@@ -252,6 +259,9 @@ def main(argv=None):
     config = {**vars(args), "parameters": parameters, "actual_device": str(device),
               "model_architecture": model.architecture,
               "actual_precision": "bfloat16" if use_bf16 else "float32",
+              "qk_normalization": "per-head RMS in float32, no affine gain",
+              "attention_backends": ["cudnn", "flash", "math"],
+              "bf16_reduced_precision_reduction": False,
               "effective_batch_size": args.batch_size * args.grad_accum_steps,
               "train_cells": len(train_data), "validation_cells": n_val}
     print(f"Device: {device}; precision: {config['actual_precision']}; parameters: {parameters:,}")
@@ -300,7 +310,7 @@ def main(argv=None):
                 n = targets.numel()
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
                     logits = predict(model, batch)
-                    loss = nn.functional.cross_entropy(logits, targets)
+                    loss = nn.functional.cross_entropy(logits.float(), targets)
                 if not torch.isfinite(loss):
                     raise FloatingPointError(f"Nonfinite training loss at step {step}")
                 # Two full microbatches each contribute loss / 2.

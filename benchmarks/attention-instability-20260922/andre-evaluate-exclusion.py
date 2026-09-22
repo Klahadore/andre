@@ -26,7 +26,7 @@ torch.set_float32_matmul_precision('high')
 checkpoint=torch.load(a.checkpoint,map_location='cpu',weights_only=True,mmap=True)
 assert checkpoint['model_architecture']=='pre_ln_v1'
 cfg=checkpoint['config']; seed=cfg['seed']+1
-model=Andre(width=cfg['hidden_dim']).cuda().eval()
+model=Andre(width=cfg['hidden_dim'], qk_norm=False).cuda().eval()
 model.load_state_dict(checkpoint['model'])
 step=checkpoint['step'];del checkpoint
 val=ScBaseCountDataset(a.data_root,'val')

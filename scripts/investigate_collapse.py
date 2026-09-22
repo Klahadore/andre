@@ -83,7 +83,7 @@ def main():
     for name in args.variants:
         norm_first, lr, warmup = variants[name]
         torch.manual_seed(42)
-        model = Andre(width=args.width, norm_first=norm_first).cuda()
+        model = Andre(width=args.width, norm_first=norm_first, qk_norm=False).cuda()
         if args.compile_layers:
             for layer in model.transformer_layers:
                 layer.compile(dynamic=False)
