@@ -1,0 +1,85 @@
+{
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "torch_version": "2.14.0+cu130",
+  "total_memory_gib": 79.1806640625,
+  "hidden_dim": 2176,
+  "layers": 30,
+  "heads": 8,
+  "sequence_length": 512,
+  "parameters": 2082370681,
+  "persistent_parameter_gradient_adam_bytes": 33317930896,
+  "precision": "FP32 parameters and optimizer states; BF16 autocast",
+  "scope": "synthetic dense 512-position cells; full forward/backward/clip/AdamW; no loader, evaluation or checkpoint saving",
+  "warmup_steps": 2,
+  "timed_steps": 8,
+  "trials": [
+    {
+      "batch_size": 32,
+      "status": "ok",
+      "seconds_per_step": 0.6512170736252756,
+      "cells_per_second": 49.138760785030485,
+      "gene_positions_per_second": 25159.045521935608,
+      "peak_allocated_gib": 71.15510129928589,
+      "peak_reserved_gib": 74.744140625,
+      "warmup_peak_allocated_gib": 71.15476083755493,
+      "step_seconds": [
+        0.6503785210006754,
+        0.65124736800135,
+        0.6512868890004029,
+        0.6512293479991058,
+        0.6515936949999741,
+        0.6510496240007342,
+        0.6515268530001777,
+        0.6514242909997847
+      ],
+      "last_loss": 3.48779296875
+    },
+    {
+      "batch_size": 34,
+      "status": "ok",
+      "seconds_per_step": 0.7071545384999354,
+      "cells_per_second": 48.0800138426929,
+      "gene_positions_per_second": 24616.967087458765,
+      "peak_allocated_gib": 74.00258159637451,
+      "peak_reserved_gib": 78.330078125,
+      "warmup_peak_allocated_gib": 74.00551128387451,
+      "step_seconds": [
+        0.7069491999991442,
+        0.7062919870004407,
+        0.7068373570000404,
+        0.7076925639994442,
+        0.7080740109995531,
+        0.7067629360008141,
+        0.7074860600005195,
+        0.7071421929995267
+      ],
+      "last_loss": 4.529411792755127
+    },
+    {
+      "batch_size": 35,
+      "status": "ok",
+      "seconds_per_step": 0.7276169964998189,
+      "cells_per_second": 48.10222983845418,
+      "gene_positions_per_second": 24628.34167728854,
+      "peak_allocated_gib": 75.38317775726318,
+      "peak_reserved_gib": 78.423828125,
+      "warmup_peak_allocated_gib": 75.38607263565063,
+      "step_seconds": [
+        0.7269242399997893,
+        0.7279139820002456,
+        0.7275580420009646,
+        0.7283019869992131,
+        0.7277991470000416,
+        0.7279933009995148,
+        0.727221686998746,
+        0.7272235860000364
+      ],
+      "last_loss": 4.249553680419922
+    },
+    {
+      "batch_size": 36,
+      "status": "oom",
+      "peak_allocated_gib": 76.74939060211182
+    }
+  ]
+}

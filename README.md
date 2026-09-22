@@ -233,3 +233,60 @@ Eight workers were fastest among the configurations tested (individual runs:
 epochs. These are loader-only warm-cache rates, not full-corpus epoch or GPU
 training estimates. Raw timing distributions and run metadata are saved in
 [`benchmarks/h100-loader-20260922.json`](benchmarks/h100-loader-20260922.json).
+
+## Training batch size at hidden dimension 2,176
+
+A separate GPU benchmark temporarily overrides the model width in its process;
+it does not edit `model.py` or save trained weights. Reproduce it with:
+
+```sh
+OMP_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8 uv run scripts/benchmark_training_batch.py \
+  --hidden-dim 2176 --output /tmp/andre-training-batches.json
+```
+
+With the current 30 layers, eight attention heads, 512 input positions per cell,
+and existing embedding tables, width 2,176 gives **2,082,370,681 parameters**:
+`30 * (12*d*d + 13*d) + 173205*d + 36601`. FP32 parameters, gradients, and two
+AdamW moment tensors alone account for **31.03 GiB** (`16 * parameters` bytes).
+Activations, autocast weights, optimizer temporaries, allocator reservations and
+CUDA overhead consume additional memory.
+
+Measured on the H100 80GB (79.18 GiB reported by CUDA), with BF16 autocast over
+FP32 parameters, ordinary AdamW, gradient clipping, dropout enabled, and no
+activation checkpointing or compilation:
+
+| Batch size (cells) | Seconds/step | Cells/second | Peak allocated GPU memory |
+| ---: | ---: | ---: | ---: |
+| 8 | 0.254 | 31.5 | 38.9 GiB |
+| 16 | 0.373 | 42.9 | 49.1 GiB |
+| 24 | 0.526 | 45.6 | 60.2 GiB |
+| 32 | 0.651 | 49.1 | 71.1–71.2 GiB |
+| 34 | 0.707 | 48.1 | 74.0 GiB |
+| 35 | 0.728 | 48.1 | 75.4 GiB |
+| 36 | Out of memory | — | — |
+| 40 | Out of memory | — | — |
+
+**Use batch 32 as the measured practical throughput choice for this configuration.**
+It represents 16,384 input gene positions and 32 masked-gene prediction targets
+per step. Batch 35 was the largest successful tested batch; batch 36 failed
+both after smaller-batch trials and in a fresh process. Peak reserved memory was
+74.7–75.7 GiB at batch 32 and 78.4 GiB at batch 35, leaving much less headroom at
+35. Other precision, optimizer, checkpointing, allocator or attention settings
+can change these limits.
+
+The coarse sweep used two warmup steps and five timed steps per size; the
+boundary sweep used two warmup steps and eight timed steps. Batch 32 was repeated
+in both sweeps with essentially identical throughput. Inputs were synthetic,
+full-length cells already on the GPU. Timing covers the entire training update
+(forward, loss, backward, clipping and AdamW), excluding loading, validation,
+logging and checkpoint saving. Trials reuse model/optimizer state, so loss
+values in these reports are not learning-quality comparisons.
+
+This identifies hardware throughput and memory limits, not the statistically
+compute-optimal effective batch. That requires convergence measurements for the
+training objective; gradient noise scale is only an approximate proxy, as
+discussed in [Critical Batch Size Revisited](https://arxiv.org/html/2505.23971v1).
+
+Raw reports: [coarse sweep](benchmarks/h100-training-width2176-20260922.json),
+[boundary sweep](benchmarks/h100-training-width2176-boundary-20260922.json),
+and [fresh-process boundary](benchmarks/h100-training-width2176-fresh-boundary-20260922.json).

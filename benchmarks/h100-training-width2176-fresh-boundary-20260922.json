@@ -1,0 +1,22 @@
+{
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "torch_version": "2.14.0+cu130",
+  "total_memory_gib": 79.1806640625,
+  "hidden_dim": 2176,
+  "layers": 30,
+  "heads": 8,
+  "sequence_length": 512,
+  "parameters": 2082370681,
+  "persistent_parameter_gradient_adam_bytes": 33317930896,
+  "precision": "FP32 parameters and optimizer states; BF16 autocast",
+  "scope": "synthetic dense 512-position cells; full forward/backward/clip/AdamW; no loader, evaluation or checkpoint saving",
+  "warmup_steps": 2,
+  "timed_steps": 8,
+  "trials": [
+    {
+      "batch_size": 36,
+      "status": "oom",
+      "peak_allocated_gib": 76.74029779434204
+    }
+  ]
+}
