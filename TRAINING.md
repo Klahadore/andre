@@ -263,3 +263,12 @@ python scripts/diagnose_attention_numerics.py --output attention-numerics.json
 
 These safeguards address an observed instability. A short overfitting test still
 does not establish held-out learning or long-run stability.
+
+Training now defaults to `--sampling global`, which shuffles cells across all
+accessions and visits each cell once per epoch. The permutation uses about
+0.98 GB of CPU memory for 122.8 million training cells; the matrices stay on
+NVMe. The legacy `--sampling block` option keeps groups of 4,096 nearby cells
+together. It improves loader-only throughput but can give 32 successive
+128-cell updates from one accession. Measured global random reads already
+exceeded either model's consumption rate. Sampling mode is recorded in the run
+configuration, and resuming with a different mode prints the change.

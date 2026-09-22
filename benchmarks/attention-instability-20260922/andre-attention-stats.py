@@ -11,7 +11,7 @@ b={k:v.cuda() for k,v in collate_fn(ds.__getitems__(random.Random(43).sample(ran
 results=[]
 for name in ['best.pt','last.pt']:
  c=torch.load(f'/opt/dlami/nvme/andre/runs/width-{a.width}-preln-compiled-10b-tokens/{name}',map_location='cpu',weights_only=True,mmap=True)
- m=Andre(width=a.width).cuda();m.load_state_dict(c['model']);step=c['step'];del c;m.train();stats=[];handles=[]
+ m=Andre(width=a.width, attention_dropout=.1).cuda();m.load_state_dict(c['model']);step=c['step'];del c;m.train();stats=[];handles=[]
  def hook(index):
   def inspect(module,args,kwargs):
    x=args[0]

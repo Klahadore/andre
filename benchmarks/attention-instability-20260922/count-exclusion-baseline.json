@@ -1,0 +1,60 @@
+{
+  "train_cells": 50000,
+  "validation_cells": 6400,
+  "fit_split": "train",
+  "validation_seed": 43,
+  "fit_method": "Each training cell contributes 1/number_of_expressed_genes per gene, integrating over the uniform MASK choice.",
+  "count_bins": "Exact counts 1..32; powers-of-two bins above 32, capped at 100000.",
+  "unconditional_loss": 9.278417383334778,
+  "unconditional_accuracy": 0.000625,
+  "count_only": [
+    {
+      "prior_smoothing_cells_per_bin": 1.0,
+      "loss": 9.157364487287444,
+      "accuracy": 0.00125
+    },
+    {
+      "prior_smoothing_cells_per_bin": 10.0,
+      "loss": 9.15887513142901,
+      "accuracy": 0.00125
+    },
+    {
+      "prior_smoothing_cells_per_bin": 100.0,
+      "loss": 9.169509257553852,
+      "accuracy": 0.00125
+    },
+    {
+      "prior_smoothing_cells_per_bin": 1000.0,
+      "loss": 9.199019682444748,
+      "accuracy": 0.00140625
+    }
+  ],
+  "excluding_visible_genes": [
+    {
+      "prior_smoothing_cells_per_bin": null,
+      "loss": 9.196224011430447,
+      "accuracy": 0.0025
+    },
+    {
+      "prior_smoothing_cells_per_bin": 1.0,
+      "loss": 9.0793451587309,
+      "accuracy": 0.00265625
+    },
+    {
+      "prior_smoothing_cells_per_bin": 10.0,
+      "loss": 9.081381431930163,
+      "accuracy": 0.00265625
+    },
+    {
+      "prior_smoothing_cells_per_bin": 100.0,
+      "loss": 9.093886064500474,
+      "accuracy": 0.00265625
+    },
+    {
+      "prior_smoothing_cells_per_bin": 1000.0,
+      "loss": 9.126586171584174,
+      "accuracy": 0.0028125
+    }
+  ],
+  "seconds": 17.958563076004793
+}

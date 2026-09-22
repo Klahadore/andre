@@ -1,8 +1,9 @@
 # Attention instability investigation — September 22, 2026
 
 The pre-LN change did not resolve long-run training. The width-768 run diverged;
-the width-512 run learned a small amount but plateaued. Both full runs are stopped
-while paired streaming continuation tests compare attention dropout 0.1 and 0.
+the width-512 run learned a small amount but plateaued. Both full runs remain stopped. Paired streaming continuation tests and a
+separate sampling comparison are complete; results below do not establish a
+complete long-run recovery.
 The experiments below used code commit 2168ce0, PyTorch 2.14.0+cu130, and H100 GPUs.
 
 ## Confirmed numerical failure
@@ -93,3 +94,77 @@ PyTorch documents float32 intermediates for the math attention backend when
 inputs are BF16: https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
 The diagnosis itself is based on the local reproductions and checkpoint probes.
 Search output is saved locally at `/tmp/andre-sdpa-precision.json`.
+
+## Stronger baseline: exclude visible genes
+
+The missing gene cannot also be in the visible input, because a cell has unique
+gene IDs and sampling is without replacement. A count-conditioned prior that
+sets visible genes' probabilities to zero and renormalizes gets loss **9.07935**.
+Applying the exact same rule to the best width-512 checkpoint (step 99,000)
+gives **8.96729**, versus its unmodified **9.06066**. Thus its context learning
+is modest but extends beyond this simple exclusion rule. This is a post-hoc
+read-only evaluation; the model/loss implementation has not been changed to
+exclude visible output classes. No validation labels were used to fit the prior.
+
+## Interpretation and further work
+
+LayerNorm on the input to attention does not bound the learned query/key
+projections' outputs. Saturated attention remains an issue even after disabling
+attention dropout. This resembles the attention-entropy collapse studied by
+Zhai et al., who connect sharp attention and unstable gradients to projection
+spectral norms. That paper supports investigating control of query/key scale;
+it does not prove that its proposed reparameterization will solve this dataset.
+We have not changed query/key normalization or claimed that a lower learning
+rate alone is a proven solution.
+
+Primary paper: https://arxiv.org/html/2303.06296v2
+Search record saved locally: `/tmp/andre-attention-entropy.json`.
+
+## Matched 1,500-update continuation tests
+
+All width-512 variants start from the same step-99,000 model **and AdamW state**,
+use LR 3e-4, batch 128, 512 positions and the same 6,400 validation cells/masks.
+Each receives 192,000 training cells. Dropout comparisons use the same training
+cells and worker sampling seed; the sampling comparison changes the cell draw.
+Residual/feed-forward dropout remains 0.1. None of these overwrite full-run
+checkpoints. Intermediate evaluations use 1,024 cells; only the initial and final
+6,400-cell evaluations should be compared with the full-run validation loss.
+
+| Width-512 continuation | Final validation loss |
+| --- | ---: |
+| Starting checkpoint (no updates) | 9.06036 |
+| Attention dropout 0.1, 4,096-cell block sampling | 9.08774 |
+| Attention dropout 0, same block sampling | 9.10321 |
+| Attention dropout 0, globally mixed cells | 9.04538 |
+
+Disabling attention dropout alone did **not** improve held-out learning in this
+comparison. It lowered typical gradient norms (median of 25-step window medians
+4.37 -> 1.13), but did not eliminate large spikes: the largest measured norms
+were 261 and 333 respectively. Do not describe this as a complete stability fix.
+
+Global sampling improves the matched dropout-off result by 0.05783 nats and
+improves on the starting checkpoint by 0.01498 nats. This supports sampling as
+a contributor to the plateau, but is one seed and a short continuation, not a
+completed scaling-law run or proof of durable recovery. The original checkpoints
+already contain the effects of the old recipe.
+
+The trainer now defaults to a uniform global permutation, without replacement,
+using the existing sampler with one corpus-sized block. It needs ~0.98 GB for
+the index array, does not load expression matrices, and visits each training
+cell once per epoch. `--sampling block` preserves the old behavior explicitly.
+The bounded experiment uses an equally uniform subset drawn with Python's
+`random.sample`; its exact permutation differs from the production NumPy RNG.
+
+For width 768, the same 1,500-update comparison from step 7,000 finishes at
+loss **9.18999** with attention dropout 0.1 and **9.18245** with dropout 0.
+Maximum gradient norms are 9.39 and 2.36 respectively. **Neither short continuation
+reproduced the original long-run explosion**, so these tests do not establish
+that disabling dropout prevents its eventual recurrence. The failed-checkpoint
+and data-independent reproductions establish the numerical failure itself.
+
+All five bounded continuation variants completed. The full training services
+remain stopped, and both best checkpoints were downloaded locally and verified:
+width 512 step 99,000; width 768 step 7,000. Ten training-loop integration tests
+pass after the sampling change. There are no configured hosted GitHub checks.
+
+![Loss and gradient progression of the stopped full runs](long-run-instability.png)

@@ -31,6 +31,8 @@ def parse_args(argv=None):
     parser.add_argument("--hidden-dim", type=int, default=512, help="Model width; a positive multiple of 8")
     parser.add_argument("--context-length", type=int, default=512)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--sampling", choices=["global", "block"], default="global",
+                        help="Shuffle all cells across accessions, or use legacy 4096-cell locality blocks")
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--weight-decay", type=float, default=0.01)
@@ -177,7 +179,11 @@ def main(argv=None):
     val_data = ScBaseCountDataset(args.data_root, split="val")
     if not len(train_data) or not len(val_data):
         raise ValueError("Training requires nonempty train and val splits")
-    sampler = BlockShuffleSampler(train_data, seed=args.seed)
+    # One corpus-sized block gives a uniform permutation of all cells. The
+    # NumPy index array costs 8 bytes/cell (~0.98 GB for this training split),
+    # but no expression data is loaded into it. Each cell appears once/epoch.
+    block_size = len(train_data) if args.sampling == "global" else 4096
+    sampler = BlockShuffleSampler(train_data, block_size=block_size, seed=args.seed)
     collate = partial(collate_fn, length=args.context_length)
     worker_options = {}
     if args.workers:
@@ -216,6 +222,10 @@ def main(argv=None):
         if previous_dropout != args.attention_dropout:
             print(f"Resuming with attention dropout changed from {previous_dropout} "
                   f"to {args.attention_dropout}", flush=True)
+        previous_sampling = checkpoint["config"].get("sampling", "block")
+        if previous_sampling != args.sampling:
+            print(f"Resuming with sampling changed from {previous_sampling} "
+                  f"to {args.sampling}", flush=True)
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_step = checkpoint["step"]
         best_loss = checkpoint["best_val_loss"]

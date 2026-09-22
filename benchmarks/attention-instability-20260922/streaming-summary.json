@@ -1,0 +1,67 @@
+[
+  {
+    "file": "streaming-512-dropout-0.1.jsonl",
+    "width": 512,
+    "source_step": 99000,
+    "attention_dropout": 0.1,
+    "sampling": "block",
+    "initial_validation_loss": 9.060361328125,
+    "final_validation_loss": 9.08774169921875,
+    "max_gradient_norm": 261.384521484375,
+    "median_of_window_medians": 4.3679609298706055,
+    "training_steps": 1500,
+    "training_cells": 192000
+  },
+  {
+    "file": "streaming-512-dropout-0.jsonl",
+    "width": 512,
+    "source_step": 99000,
+    "attention_dropout": 0.0,
+    "sampling": "block",
+    "initial_validation_loss": 9.060361328125,
+    "final_validation_loss": 9.10320556640625,
+    "max_gradient_norm": 332.9510498046875,
+    "median_of_window_medians": 1.1320220828056335,
+    "training_steps": 1500,
+    "training_cells": 192000
+  },
+  {
+    "file": "streaming-512-global-dropout-0.jsonl",
+    "width": 512,
+    "source_step": 99000,
+    "attention_dropout": 0.0,
+    "sampling": "global_random_without_replacement",
+    "initial_validation_loss": 9.060361328125,
+    "final_validation_loss": 9.045377197265625,
+    "max_gradient_norm": 157.96511840820312,
+    "median_of_window_medians": 1.4152923226356506,
+    "training_steps": 1500,
+    "training_cells": 192000
+  },
+  {
+    "file": "streaming-768-dropout-0.1.jsonl",
+    "width": 768,
+    "source_step": 7000,
+    "attention_dropout": 0.1,
+    "sampling": "block",
+    "initial_validation_loss": 9.20138671875,
+    "final_validation_loss": 9.1899853515625,
+    "max_gradient_norm": 9.39006233215332,
+    "median_of_window_medians": 0.5710664391517639,
+    "training_steps": 1500,
+    "training_cells": 192000
+  },
+  {
+    "file": "streaming-768-dropout-0.jsonl",
+    "width": 768,
+    "source_step": 7000,
+    "attention_dropout": 0.0,
+    "sampling": "block",
+    "initial_validation_loss": 9.20138671875,
+    "final_validation_loss": 9.18245361328125,
+    "max_gradient_norm": 2.3646278381347656,
+    "median_of_window_medians": 0.5672822296619415,
+    "training_steps": 1500,
+    "training_cells": 192000
+  }
+]
