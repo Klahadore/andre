@@ -78,7 +78,7 @@ dataset = ScBaseCountDataset("/opt/dlami/nvme/andre/lmdb", split="train")
 sampler = BlockShuffleSampler(dataset, block_size=4096, seed=42)
 loader = DataLoader(
     dataset, batch_size=256, sampler=sampler, collate_fn=collate_fn,
-    num_workers=4, persistent_workers=True, prefetch_factor=2,
+    num_workers=8, persistent_workers=True, prefetch_factor=2,
     multiprocessing_context="spawn", pin_memory=True,
     generator=torch.Generator().manual_seed(42),
 )
@@ -112,7 +112,7 @@ memory. Use `close_environments()` to release reader handles explicitly.
 
 ```sh
 uv run python -m unittest discover -s tests -v
-uv run scripts/benchmark_dataset.py /path/to/lmdb-pilot --workers 4
+uv run scripts/benchmark_dataset.py /path/to/lmdb-pilot --workers 8
 ```
 
 The local pilot for ERX8792169 retained 7,410 cells and produced a 32.0 MiB

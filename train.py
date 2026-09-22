@@ -27,7 +27,7 @@ def parse_args(argv=None):
     parser.add_argument("--steps", type=int, default=1000, help="Total optimizer steps, including resumed steps")
     parser.add_argument("--batch-size", type=int, default=16, help="Cells per optimizer step")
     parser.add_argument("--context-length", type=int, default=512)
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--weight-decay", type=float, default=0.01)

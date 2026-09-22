@@ -20,7 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
     parser.add_argument("--split", default="train", choices=["train", "val", "test"])
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--batches", type=int, default=100)
     parser.add_argument("--length", type=int, default=512)
