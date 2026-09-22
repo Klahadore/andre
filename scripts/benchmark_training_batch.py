@@ -1,7 +1,7 @@
 """Measure synthetic training-step throughput and memory without saving weights.
 
 Uses the actual Andre forward, BF16 autocast over FP32 parameters, AdamW and
-gradient clipping. No activation checkpointing, compilation or loader timing.
+ gradient clipping. No activation checkpointing or loader timing.
 The largest fitting batch is a hardware result, not a statistical optimum.
 """
 import argparse
@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--steps", type=int, default=5)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--compile-layers", action="store_true")
     args = parser.parse_args()
     if min(args.hidden_dim, args.length, args.warmup, args.steps, *args.batches) < 1:
         parser.error("dimensions, batch sizes and step counts must be positive")
@@ -38,6 +39,9 @@ def main():
     with torch.device("cuda"):
         model = model_module.Andre(width=args.hidden_dim)
     model.train()
+    if args.compile_layers:
+        for layer in model.transformer_layers:
+            layer.compile(dynamic=False)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.01)
     parameters = sum(p.numel() for p in model.parameters())
     report = {"gpu": torch.cuda.get_device_name(), "torch_version": torch.__version__,
@@ -46,6 +50,7 @@ def main():
               "heads": 8, "sequence_length": args.length, "parameters": parameters,
               "persistent_parameter_gradient_adam_bytes": parameters * 16,
               "precision": "FP32 parameters and optimizer states; BF16 autocast",
+              "compile_layers": args.compile_layers,
               "scope": f"synthetic dense {args.length}-position cells; full forward/backward/clip/AdamW; no loader, evaluation or checkpoint saving",
               "warmup_steps": args.warmup, "timed_steps": args.steps, "trials": []}
     print(json.dumps({k: v for k, v in report.items() if k != "trials"}), flush=True)

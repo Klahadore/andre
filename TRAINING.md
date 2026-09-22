@@ -200,6 +200,10 @@ In addition to loss and accuracy, W&B now shows:
 - `val/context_gain`: on the same first 128 validation cells, loss with gene
   context hidden minus normal loss. A positive value means context helps on
   this probe. It keeps the MASK count available in both conditions.
+- `val/shuffled_context_gain`: loss with another cell's context minus normal
+  loss, again retaining the original MASK count. This tests context relevance
+  while keeping a normal-sized input. These 128-cell probes are noisy; follow
+  their trend alongside loss on the full fixed validation subset.
 
 These diagnostics complement held-out loss. A tiny fixed-data learning test
 can expose a broken learning path, but passing it does not establish stability
@@ -216,3 +220,21 @@ uv run scripts/investigate_collapse.py \
 The probes use identical cells, gene samples and masks across configurations,
 keep all 30 layers and all 36,601 output classes, and compare normal predictions
 with context hidden and targets shuffled. They do not resume a production run.
+
+## Optional compilation
+
+Add `--compile-layers` to compile each Transformer block with PyTorch. The first
+training and validation batches take longer while kernels compile; later batches
+reuse them. This changes execution, not the architecture, effective batch, loss,
+or optimizer. Floating-point rounding and dropout random-number streams can
+differ, so compiled and eager runs are not bitwise reproducible.
+
+Compilation happens in place, preserving checkpoint parameter names. A compiled
+checkpoint can resume without the flag, and an eager pre-LN checkpoint can resume
+with it. The usual resume limitation about shuffle/RNG state still applies.
+Measure memory and speed on the actual GPU before using it for a long run:
+
+```bash
+uv run scripts/benchmark_training_batch.py --hidden-dim 768 --batches 128 \
+  --warmup 3 --steps 10 --compile-layers --output compiled-benchmark.json
+```

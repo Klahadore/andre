@@ -180,6 +180,10 @@ class TrainingLoopTests(unittest.TestCase):
             attention[:, 1:] = False
             without_context = model(ids, counts, attention, positions)
             self.assertGreater(torch.nn.functional.cross_entropy(without_context, targets).item(), 1.)
+        metrics = train.evaluate(model, [{"gene_ids": ids, "counts": counts,
+            "attention_mask": torch.ones_like(attention), "mask_positions": positions,
+            "targets": targets + 2}], torch.device("cpu"), False, 77)
+        self.assertGreater(metrics["val/shuffled_context_gain"], 1.)
 
     def test_legacy_postln_checkpoint_is_rejected(self):
         out = self.root / "legacy"
@@ -189,6 +193,25 @@ class TrainingLoopTests(unittest.TestCase):
         torch.save(checkpoint, out / "legacy.pt")
         with self.assertRaisesRegex(ValueError, "normalization architecture differs"):
             train.main(self.command(out, 2) + ["--resume", str(out / "legacy.pt")])
+
+    def test_compiled_blocks_save_and_resume_without_compilation(self):
+        # The eager backend exercises Dynamo's wrapper on CPU without requiring
+        # a local C++ compiler. H100 kernel speed/correctness is measured separately.
+        original_compile = torch.nn.Module.compile
+
+        def compile_eager(module, **kwargs):
+            return original_compile(module, backend="eager", **kwargs)
+
+        out = self.root / "compiled"
+        with patch.object(torch.nn.Module, "compile", compile_eager):
+            train.main(self.command(out, 2) + ["--compile-layers"])
+        checkpoint = torch.load(out / "last.pt", weights_only=True)
+        self.assertTrue(checkpoint["config"]["compile_layers"])
+        self.assertFalse(any("_orig_mod" in key for key in checkpoint["model"]))
+        train.main(self.command(out, 3) + ["--resume", str(out / "last.pt")])
+        resumed = torch.load(out / "last.pt", weights_only=True)
+        self.assertEqual(resumed["step"], 3)
+        self.assertTrue(all(s["step"].item() == 3 for s in resumed["optimizer"]["state"].values()))
 
 
 if __name__ == "__main__":

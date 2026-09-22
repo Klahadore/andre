@@ -51,6 +51,7 @@ def main():
     parser.add_argument('--cells', type=int, default=64)
     parser.add_argument('--microbatch', type=int, default=32)
     parser.add_argument('--steps', type=int, default=300)
+    parser.add_argument('--compile-layers', action='store_true')
     parser.add_argument('--variants', nargs='+', default=['post_original', 'pre_same_schedule', 'post_conservative'])
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -83,9 +84,13 @@ def main():
         norm_first, lr, warmup = variants[name]
         torch.manual_seed(42)
         model = Andre(width=args.width, norm_first=norm_first).cuda()
+        if args.compile_layers:
+            for layer in model.transformer_layers:
+                layer.compile(dynamic=False)
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=.01)
         config = {'variant': name, 'width': args.width, 'norm_first': norm_first,
-                  'lr': lr, 'warmup': warmup, 'steps': args.steps, 'cells': args.cells}
+                  'lr': lr, 'warmup': warmup, 'steps': args.steps, 'cells': args.cells,
+                  'compile_layers': args.compile_layers}
         print(json.dumps(config), flush=True)
         started = time.monotonic()
         with (args.out/f'{name}.jsonl').open('w') as log:

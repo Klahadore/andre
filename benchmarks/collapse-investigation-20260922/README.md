@@ -46,6 +46,26 @@ to 194.57 at batch 64. This is a brief hardware test, not a long-run throughput
 or convergence guarantee. Raw measurements and per-probe curves are alongside
 this report.
 
+## Compilation check
+
+Compiling each Transformer block in place (`--compile-layers`) improved the
+width-768, batch-128 synthetic test to **296.95 cells/s**, from 203.94 eager.
+Peak allocated memory fell to **58.63 GiB**. Ten timed steps were measured after
+three warmup steps; this excludes compilation, data loading, and validation.
+
+The compiled width-768 model then learned the same 64 real cells in 100 updates:
+loss **0.001921**, accuracy **100%**, with 64 distinct predictions. Hiding context
+raised loss to **8.069**, and shuffled targets raised it to **14.798**. This probe
+used one microbatch of 64, retaining the earlier probes' effective batch of 64.
+The compiled path therefore passes the learning check as well as the hardware
+check. Production runs retain effective batch 128 and warmup 1,000.
+
+Before compiling the full model, a padded-input single-block comparison at
+width 768, BF16, with dropout disabled found mean output absolute difference
+8.95e-5 and maximum attention-projection gradient difference 5.96e-8. Compilation
+is not bitwise-equivalent, particularly with dropout; both final runs start
+fresh with the same settings and compilation enabled.
+
 ## References
 
 - [On Layer Normalization in the Transformer Architecture](https://arxiv.org/abs/2002.04745)

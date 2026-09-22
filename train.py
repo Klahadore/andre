@@ -40,6 +40,7 @@ def parse_args(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--precision", choices=["auto", "float32", "bfloat16"], default="auto")
+    parser.add_argument("--compile-layers", action="store_true", help="Compile each Transformer block; first steps take longer")
     parser.add_argument("--resume", help="Path to last.pt or best.pt")
     parser.add_argument("--wandb-mode", choices=["disabled", "offline", "online"], default="disabled")
     parser.add_argument("--wandb-project", default="andre")
@@ -76,7 +77,7 @@ def evaluate(model, loader, device, use_bf16, seed):
     probability_sum = None
     entropy_sum = 0.0
     predicted_genes = set()
-    context_loss_sum = context_full_loss_sum = context_cells = 0
+    context_loss_sum = shuffled_context_loss_sum = context_full_loss_sum = context_cells = 0
     # Validation collation runs on the main CPU. Restore its RNG afterward so
     # evaluation does not change subsequent training samples/dropout on CPU.
     with torch.random.fork_rng(devices=[]):
@@ -113,7 +114,15 @@ def evaluate(model, loader, device, use_bf16, seed):
                 with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_bf16):
                     context_logits = predict(model, contextless)
                     context_loss = nn.functional.cross_entropy(context_logits, targets[:take])
+                    # A second check uses another cell's context while preserving
+                    # this target's MASK count. Unlike removing all context, this
+                    # keeps a normal-sized input and tests context relevance.
+                    shuffled = {name: tensor[:take].roll(1, 0) for name, tensor in batch.items()}
+                    shuffled["counts"][rows, shuffled["mask_positions"]] = batch["counts"][rows, batch["mask_positions"][:take]]
+                    shuffled_logits = predict(model, shuffled)
+                    shuffled_loss = nn.functional.cross_entropy(shuffled_logits, targets[:take])
                 context_loss_sum += context_loss.item() * take
+                shuffled_context_loss_sum += shuffled_loss.item() * take
                 context_full_loss_sum += nn.functional.cross_entropy(logits[:take].float(), targets[:take]).item() * take
                 context_cells += take
     model.train()  # Re-enable dropout before returning to training.
@@ -123,6 +132,7 @@ def evaluate(model, loader, device, use_bf16, seed):
             "val/prediction_kl_to_mean": max(0.0, mean_entropy - entropy_sum / cells),
             "val/unique_top1_predictions": len(predicted_genes),
             "val/context_gain": (context_loss_sum - context_full_loss_sum) / context_cells,
+            "val/shuffled_context_gain": (shuffled_context_loss_sum - context_full_loss_sum) / context_cells,
             "val/context_probe_cells": context_cells}
 
 
@@ -203,6 +213,13 @@ def main(argv=None):
     if start_step >= args.steps:
         raise ValueError("--steps must exceed the checkpoint's completed step count")
     sampler.set_epoch(epoch)
+
+    # Compile blocks in place: the model and checkpoint parameter names stay the
+    # same. Compilation costs time on the first training/validation batch, then
+    # reuses kernels for subsequent batches of the same shape.
+    if args.compile_layers:
+        for layer in model.transformer_layers:
+            layer.compile(dynamic=False)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
