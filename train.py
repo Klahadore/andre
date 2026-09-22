@@ -7,6 +7,7 @@ Read main() from top to bottom: data -> model -> forward -> loss -> backward
 import argparse
 from functools import partial
 import json
+import math
 from pathlib import Path
 import random
 import time
@@ -34,6 +35,10 @@ def parse_args(argv=None):
     parser.add_argument("--warmup-steps", type=int, default=100)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument("--max-grad-norm", type=float, default=1000.0,
+                        help="Abort before updating if the unclipped gradient norm exceeds this limit")
+    parser.add_argument("--attention-dropout", type=float, default=0.0,
+                        help="Dropout on attention weights only; other dropout remains 0.1")
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--eval-every", type=int, default=100, help="Also saves checkpoints")
     parser.add_argument("--val-batches", type=int, default=50, help="Bounded, fixed validation subset")
@@ -56,6 +61,10 @@ def parse_args(argv=None):
         parser.error("workers, warmup-steps, and weight-decay must be nonnegative")
     if args.lr <= 0 or args.grad_clip <= 0:
         parser.error("lr and grad-clip must be positive")
+    if not math.isfinite(args.max_grad_norm) or args.max_grad_norm <= 0:
+        parser.error("max-grad-norm must be finite and positive")
+    if not 0 <= args.attention_dropout < 1:
+        parser.error("attention-dropout must be between 0 (inclusive) and 1")
     return args
 
 
@@ -190,7 +199,7 @@ def main(argv=None):
 
     # 2. Create the model and optimizer. Parameters stay float32; autocast below
     # uses bfloat16 for suitable GPU operations. BF16 does not need a GradScaler.
-    model = Andre(width=args.hidden_dim).to(device)
+    model = Andre(width=args.hidden_dim, attention_dropout=args.attention_dropout).to(device)
     if (model.gene_embedding.num_embeddings != train_data.vocab_size
             or model.out_layer.out_features != train_data.vocab_size - 2):
         raise ValueError("Model vocabulary sizes must match catalog.json (including PAD/MASK at input only)")
@@ -203,6 +212,10 @@ def main(argv=None):
         if checkpoint["config"].get("hidden_dim", 512) != args.hidden_dim:
             raise ValueError("--hidden-dim must match the checkpoint's model width")
         model.load_state_dict(checkpoint["model"])
+        previous_dropout = checkpoint["config"].get("attention_dropout", 0.1)
+        if previous_dropout != args.attention_dropout:
+            print(f"Resuming with attention dropout changed from {previous_dropout} "
+                  f"to {args.attention_dropout}", flush=True)
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_step = checkpoint["step"]
         best_loss = checkpoint["best_val_loss"]
@@ -292,6 +305,11 @@ def main(argv=None):
                 last_grad_rms = model.transformer_layers[-1].self_attn.in_proj_weight.grad.float().square().mean().sqrt().item()
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip,
                                                 error_if_nonfinite=True)
+            if grad_norm.item() > args.max_grad_norm:
+                raise FloatingPointError(
+                    f"Gradient norm {grad_norm.item():.6g} exceeds --max-grad-norm "
+                    f"{args.max_grad_norm:g} at step {step}; optimizer update skipped. "
+                    "The previous saved checkpoints are unchanged.")
             optimizer.step()
 
             if should_log:

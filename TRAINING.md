@@ -238,3 +238,28 @@ Measure memory and speed on the actual GPU before using it for a long run:
 uv run scripts/benchmark_training_batch.py --hidden-dim 768 --batches 128 \
   --warmup 3 --steps 10 --compile-layers --output compiled-benchmark.json
 ```
+
+### Attention precision and gradient failures
+
+The long-run investigation found that BF16 memory-efficient attention with
+attention dropout could produce very large erroneous gradients once attention
+became sharply concentrated. The default is now `--attention-dropout 0`; the
+feed-forward and residual dropout layers remain at 0.1. This setting is saved in
+the run configuration. Loading an older checkpoint prints when its attention
+dropout setting changes. Evaluation always disables dropout.
+
+Gradient clipping and detecting a failed run serve different purposes. We still
+clip gradients to norm 1, but now stop **before the optimizer update** if the
+original norm exceeds `--max-grad-norm 1000`. The previous checkpoint remains
+available. A finite loss and successful clipping do not guarantee useful learning.
+
+The reproduction and controlled results are in
+[the attention investigation](benchmarks/attention-instability-20260922/README.md).
+On the training GPU, the standalone numerical probe needs no dataset:
+
+```bash
+python scripts/diagnose_attention_numerics.py --output attention-numerics.json
+```
+
+These safeguards address an observed instability. A short overfitting test still
+does not establish held-out learning or long-run stability.

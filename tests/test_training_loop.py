@@ -108,8 +108,8 @@ class TrainingLoopTests(unittest.TestCase):
         # Disable dropout so RNG differences cannot obscure gradient averaging.
         models = []
 
-        def make_model(width):
-            model = model_module.Andre(width=width)
+        def make_model(width, **kwargs):
+            model = model_module.Andre(width=width, **kwargs)
             for layer in model.modules():
                 if isinstance(layer, torch.nn.Dropout):
                     layer.p = 0
@@ -144,11 +144,21 @@ class TrainingLoopTests(unittest.TestCase):
         self.assertEqual(model.gene_embedding.embedding_dim, 768)
         self.assertEqual(model.transformer_layers[0].linear1.out_features, 768 * 4)
         self.assertEqual(model.out_layer.in_features, 768)
+        self.assertEqual(model.transformer_layers[0].self_attn.dropout, 0.)
+        self.assertEqual(model.transformer_layers[0].dropout.p, .1)
         with self.assertRaisesRegex(ValueError, "divisible by 8"):
             model_module.Andre(width=767)
         for extra in (["--hidden-dim", "767"], ["--grad-accum-steps", "0"]):
             with self.assertRaises(SystemExit):
                 train.parse_args(["--data-root", str(self.data)] + extra)
+
+    def test_large_finite_gradient_aborts_before_optimizer_update(self):
+        out = self.root / "gradient-failure"
+        with patch.object(torch.optim.AdamW, "step") as update:
+            with self.assertRaisesRegex(FloatingPointError, "optimizer update skipped"):
+                train.main(self.command(out, 1) + ["--max-grad-norm", "1e-12"])
+            update.assert_not_called()
+        self.assertFalse((out / "last.pt").exists())
 
     def test_context_only_learning_on_fixed_examples(self):
         # All MASK counts are identical; only the visible gene context can

@@ -1,0 +1,87 @@
+[
+  {
+    "backend": "default",
+    "dropout": "all",
+    "loss": 9.609375,
+    "grad_norm": 108.28071594238281
+  },
+  {
+    "backend": "default",
+    "dropout": "attention_only",
+    "loss": 9.6796875,
+    "grad_norm": 42.787654876708984
+  },
+  {
+    "backend": "default",
+    "dropout": "residual_only",
+    "loss": 9.671875,
+    "grad_norm": 7.059645652770996
+  },
+  {
+    "backend": "math",
+    "dropout": "all",
+    "loss": 9.65625,
+    "grad_norm": 31.231582641601562
+  },
+  {
+    "backend": "math",
+    "dropout": "attention_only",
+    "loss": 9.6796875,
+    "grad_norm": 26.78861427307129
+  },
+  {
+    "backend": "math",
+    "dropout": "residual_only",
+    "loss": 9.671875,
+    "grad_norm": 9.365574836730957
+  },
+  {
+    "backend": "efficient",
+    "dropout": "all",
+    "loss": 9.609375,
+    "grad_norm": 108.28071594238281
+  },
+  {
+    "backend": "efficient",
+    "dropout": "attention_only",
+    "loss": 9.6796875,
+    "grad_norm": 42.787654876708984
+  },
+  {
+    "backend": "efficient",
+    "dropout": "residual_only",
+    "loss": 9.671875,
+    "grad_norm": 6.223720073699951
+  },
+  {
+    "backend": "cudnn",
+    "dropout": "all",
+    "error": "No available kernel. Aborting execution."
+  },
+  {
+    "backend": "cudnn",
+    "dropout": "attention_only",
+    "error": "No available kernel. Aborting execution."
+  },
+  {
+    "backend": "cudnn",
+    "dropout": "residual_only",
+    "loss": 9.671875,
+    "grad_norm": 7.048748016357422
+  },
+  {
+    "backend": "flash",
+    "dropout": "all",
+    "error": "No available kernel. Aborting execution."
+  },
+  {
+    "backend": "flash",
+    "dropout": "attention_only",
+    "error": "No available kernel. Aborting execution."
+  },
+  {
+    "backend": "flash",
+    "dropout": "residual_only",
+    "error": "No available kernel. Aborting execution."
+  }
+]

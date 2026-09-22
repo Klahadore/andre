@@ -1,0 +1,22 @@
+[
+  {
+    "sampler": "block",
+    "measured_cells": 16384,
+    "seconds": 1.1231803629998467,
+    "cells_per_second": 14587.149615259286,
+    "startup_seconds": 9.324487776997557,
+    "mean_shards_per_batch": 1,
+    "median_shards_per_batch": 1,
+    "note": "No explicit cache prewarming; concurrent GPU training may contend for CPU/IO."
+  },
+  {
+    "sampler": "random",
+    "measured_cells": 16384,
+    "seconds": 4.4003449380034,
+    "cells_per_second": 3723.344472043601,
+    "startup_seconds": 9.52067137400445,
+    "mean_shards_per_batch": 127.3875968992248,
+    "median_shards_per_batch": 128,
+    "note": "No explicit cache prewarming; concurrent GPU training may contend for CPU/IO."
+  }
+]

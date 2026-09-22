@@ -1,0 +1,19 @@
+{
+  "checkpoint": "/opt/dlami/nvme/andre/runs/width-512-preln-compiled-10b-tokens/last.pt",
+  "checkpoint_step": 107000,
+  "width": 512,
+  "seed": 43,
+  "cells": 6400,
+  "batch_size": 128,
+  "loss": 9.075936317443848,
+  "shuffled_context_loss": 9.366471290588379,
+  "shuffled_context_gain": 0.2905350923538208,
+  "paired_gain_standard_error_iid": 0.01025483664125204,
+  "uncertainty_note": "Naive paired standard error treats cells as independent; experiment clustering can increase uncertainty.",
+  "fraction_cells_helped_by_correct_context": 0.6170312762260437,
+  "constant_mean_prediction_loss": 9.300704956054688,
+  "prediction_kl_to_mean": 0.23161321640014698,
+  "accuracy": 0.0015625000232830644,
+  "unique_top1_predictions": 120,
+  "seconds": 22.234071210994443
+}

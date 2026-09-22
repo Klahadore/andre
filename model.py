@@ -8,17 +8,25 @@ num_transformer_layers = 30
 output_dim = 36601
 
 class Andre(nn.Module):
-    def __init__(self, width=None, norm_first=True):
+    def __init__(self, width=None, norm_first=True, attention_dropout=0.0):
         super().__init__()
         width = hidden_dim if width is None else width
         if width < 1 or width % 8:
             raise ValueError("Model width must be positive and divisible by 8 attention heads")
+        if not 0 <= attention_dropout < 1:
+            raise ValueError("attention_dropout must be between 0 (inclusive) and 1")
         self.count_embedding = nn.Embedding(num_embeddings=100_001, padding_idx=0, embedding_dim=width)
         self.gene_embedding = nn.Embedding(num_embeddings=36601+2, padding_idx=0, embedding_dim=width)
 
         self.transformer_layers = nn.ModuleList([nn.TransformerEncoderLayer(
             d_model=width, nhead=8, dim_feedforward=width*4, batch_first=True,
             norm_first=norm_first) for i in range(num_transformer_layers)])
+        # BF16 memory-efficient attention with dropout produced spurious large
+        # gradients once attention became saturated. Keep the other dropout
+        # layers, but default attention dropout to zero. Evidence is recorded in
+        # benchmarks/attention-instability-20260922/.
+        for layer in self.transformer_layers:
+            layer.self_attn.dropout = attention_dropout
 
         # Pre-LN keeps the residual path open through the deep stack. Normalize
         # its final hidden vector before predicting the missing gene.

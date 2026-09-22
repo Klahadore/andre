@@ -1,0 +1,66 @@
+[
+  {
+    "dtype": "torch.bfloat16",
+    "backend": "SDPBackend.EFFICIENT_ATTENTION",
+    "dropout": 0.0,
+    "q_grad_norm": 0.0011290948605164886,
+    "k_grad_norm": 0.0009194507729262114,
+    "v_grad_norm": 894.2990112304688
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "backend": "SDPBackend.EFFICIENT_ATTENTION",
+    "dropout": 0.1,
+    "q_grad_norm": 21.708824157714844,
+    "k_grad_norm": 15.966261863708496,
+    "v_grad_norm": 946.34033203125
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "backend": "SDPBackend.MATH",
+    "dropout": 0.0,
+    "q_grad_norm": 0.0,
+    "k_grad_norm": 0.0,
+    "v_grad_norm": 894.2990112304688
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "backend": "SDPBackend.MATH",
+    "dropout": 0.1,
+    "q_grad_norm": 0.0,
+    "k_grad_norm": 0.0,
+    "v_grad_norm": 936.9751586914062
+  },
+  {
+    "dtype": "torch.float32",
+    "backend": "SDPBackend.EFFICIENT_ATTENTION",
+    "dropout": 0.0,
+    "q_grad_norm": 0.0031184563413262367,
+    "k_grad_norm": 0.00368398055434227,
+    "v_grad_norm": 894.1940307617188
+  },
+  {
+    "dtype": "torch.float32",
+    "backend": "SDPBackend.EFFICIENT_ATTENTION",
+    "dropout": 0.1,
+    "q_grad_norm": 0.002014306141063571,
+    "k_grad_norm": 0.0020174148958176374,
+    "v_grad_norm": 947.7427978515625
+  },
+  {
+    "dtype": "torch.float32",
+    "backend": "SDPBackend.MATH",
+    "dropout": 0.0,
+    "q_grad_norm": 0.0,
+    "k_grad_norm": 0.0,
+    "v_grad_norm": 894.2489013671875
+  },
+  {
+    "dtype": "torch.float32",
+    "backend": "SDPBackend.MATH",
+    "dropout": 0.1,
+    "q_grad_norm": 0.0,
+    "k_grad_norm": 0.0,
+    "v_grad_norm": 936.928955078125
+  }
+]
